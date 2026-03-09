@@ -1,0 +1,53 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "burning-cost-examples"
+version = "0.1.0"
+description = "End-to-end insurance pricing workflow examples using the Burning Cost open-source stack"
+authors = [{ name = "Burning Cost", email = "pricing.frontier@gmail.com" }]
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+dependencies = [
+    # Published on PyPI
+    "insurance-deploy>=0.1.1",
+    "catboost>=1.2",
+    "shap>=0.45",
+    "numpy>=1.24",
+    "scipy>=1.11",
+    # polars is a transitive dependency of shap-relativities but we use it directly
+    "polars>=0.20",
+    # These will be available from PyPI once published.
+    # Until then, install from source — see README.md.
+    "insurance-synthetic>=0.1.0",
+    "shap-relativities>=0.2.0",
+    # insurance-validation is forthcoming; the example runs without it.
+    # Install manually once released: uv add insurance-validation
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["examples"]
+
+[project.urls]
+Homepage = "https://burning-cost.github.io"
+Repository = "https://github.com/burning-cost/burning-cost-examples"
+
+# ---------------------------------------------------------------------------
+# uv workspace sources — used when developing against local checkouts.
+#
+# These tell uv to use the local source trees instead of PyPI. Remove this
+# section and the [[tool.uv.index]] overrides once all packages are published
+# and you want to use PyPI releases.
+#
+# Set up: clone all the repos to /home/ralph/repos/ then run `uv sync`.
+# ---------------------------------------------------------------------------
+[tool.uv.sources]
+insurance-synthetic = { path = "/home/ralph/repos/insurance-synthetic", editable = true }
+shap-relativities = { path = "/home/ralph/repos/shap-relativities", editable = true }
+
+# Only resolve for the current platform — avoids solver failures for packages
+# not yet on PyPI when uv tries to resolve for all target environments.
+[tool.uv]
+environments = ["sys_platform == 'linux'"]
