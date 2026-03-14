@@ -36,7 +36,7 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install insurance-dynamics matplotlib polars
+# MAGIC %pip install insurance-dynamics>=0.1.1 matplotlib polars
 
 # COMMAND ----------
 

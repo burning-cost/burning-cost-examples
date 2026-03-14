@@ -1,5 +1,7 @@
 # Databricks notebook source
 
+# COMMAND ----------
+
 # MAGIC %md
 # MAGIC # Transfer Learning for Thin Insurance Segments
 # MAGIC
@@ -14,7 +16,7 @@
 # MAGIC 2. **Foundation models** — TabPFN/TabICLv2 for zero-shot or few-shot prediction when you have no related data at all.
 # MAGIC
 # MAGIC This notebook works through the full workflow on synthetic UK motor data:
-# MAGIC - Build a realistic source/target split (40k source, 10k target with thin cells)
+# MAGIC - Build a realistic source/target split (20k source, 5k target with thin cells)
 # MAGIC - Fit a standard Poisson GLM on the thin target — show where it falls apart
 # MAGIC - Apply `GLMTransfer` and measure the improvement
 # MAGIC - Try `InsuranceTabPFN` on the thinnest cells
@@ -25,7 +27,7 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install insurance-thin-data polars matplotlib catboost
+# MAGIC %pip install --no-deps insurance-thin-data>=0.1.1
 
 # COMMAND ----------
 
@@ -33,12 +35,10 @@ import warnings
 warnings.filterwarnings("ignore", category=UserWarning)
 
 import numpy as np
-import polars as pl
 import pandas as pd
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-import matplotlib.gridspec as gridspec
 from typing import Dict, List, Tuple
 
 rng = np.random.default_rng(42)
@@ -49,15 +49,15 @@ print("Libraries loaded.")
 # MAGIC %md
 # MAGIC ## 1. Synthetic Data Generation
 # MAGIC
-# MAGIC We generate 50,000 UK motor policies with a known data-generating process (DGP). The DGP is a Poisson frequency model with log-linear structure:
+# MAGIC We generate 25,000 UK motor policies with a known data-generating process (DGP). The DGP is a Poisson frequency model with log-linear structure:
 # MAGIC
 # MAGIC ```
 # MAGIC E[claims] = exposure * exp(intercept + β_age * age_effect + β_area * area_effect + β_vehicle * vehicle_age + β_ncd * ncd_effect)
 # MAGIC ```
 # MAGIC
-# MAGIC **Source portfolio (40k policies):** Well-populated across all segments. Represents the existing book — perhaps a personal lines motor scheme with years of history.
+# MAGIC **Source portfolio (20k policies):** Well-populated across all segments. Represents the existing book — perhaps a personal lines motor scheme with years of history.
 # MAGIC
-# MAGIC **Target portfolio (10k policies):** Same underlying DGP but restricted to a niche segment — say, a new affinity scheme or a specific geographic region. Deliberately sparse in several cells (young drivers in outer areas, older vehicles with high NCD). These thin cells have fewer than 200 policies.
+# MAGIC **Target portfolio (5k policies):** Same underlying DGP but restricted to a niche segment — say, a new affinity scheme or a specific geographic region. Deliberately sparse in several cells (young drivers in outer areas, older vehicles with high NCD). These thin cells have fewer than 200 policies.
 # MAGIC
 # MAGIC The source and target share all features but differ slightly in the marginal distributions. The target has a mild covariate shift: younger drivers and older vehicles are over-represented relative to the source.
 
@@ -67,8 +67,8 @@ print("Libraries loaded.")
 # Data-generating process
 # ---------------------------------------------------------------------------
 
-N_SOURCE = 40_000
-N_TARGET = 10_000
+N_SOURCE = 20_000
+N_TARGET = 5_000
 
 # Feature definitions
 AGE_BANDS = ["17-24", "25-35", "36-50", "51-65", "66+"]
@@ -94,7 +94,7 @@ def sample_policies(
     veh_probs: np.ndarray,
     ncd_probs: np.ndarray,
     rng: np.random.Generator,
-) -> pl.DataFrame:
+) -> pd.DataFrame:
     """Sample n policies with the given marginal distributions and known DGP."""
 
     age_idx  = rng.choice(len(AGE_BANDS), size=n, p=age_probs)
@@ -122,7 +122,7 @@ def sample_policies(
     freq = np.exp(eta)
     claims = rng.poisson(exposure * freq)
 
-    return pl.DataFrame({
+    return pd.DataFrame({
         "age_band":      age_bands,
         "area_code":     area_codes,
         "vehicle_age":   veh_groups,
@@ -175,29 +175,29 @@ print(f"Target A/E: {df_target['claims'].sum() / (df_target['exposure'] * df_tar
 # Cell counts in target: age_band x area_code (the primary rating dimensions)
 cell_counts = (
     df_target
-    .group_by(["age_band", "area_code"])
+    .groupby(["age_band", "area_code"], observed=True)
     .agg(
-        pl.len().alias("n_policies"),
-        pl.col("claims").sum().alias("n_claims"),
-        pl.col("exposure").sum().alias("total_exposure"),
+        n_policies=("claims", "count"),
+        n_claims=("claims", "sum"),
+        total_exposure=("exposure", "sum"),
     )
-    .with_columns(
-        (pl.col("n_claims") / pl.col("total_exposure")).alias("observed_freq"),
-        pl.when(pl.col("n_policies") < 200).then(pl.lit("thin (<200)"))
-          .when(pl.col("n_policies") < 1000).then(pl.lit("medium (200-999)"))
-          .otherwise(pl.lit("thick (1000+)"))
-          .alias("size_tier"),
-    )
-    .sort(["age_band", "area_code"])
+    .reset_index()
+    .sort_values(["age_band", "area_code"])
+)
+cell_counts["observed_freq"] = cell_counts["n_claims"] / cell_counts["total_exposure"]
+cell_counts["size_tier"] = pd.cut(
+    cell_counts["n_policies"],
+    bins=[0, 199, 999, float("inf")],
+    labels=["thin (<200)", "medium (200-999)", "thick (1000+)"],
 )
 
 print("Cell counts in target portfolio (age_band x area_code):")
-print(cell_counts.select(["age_band", "area_code", "n_policies", "n_claims", "size_tier"]).to_pandas().to_string(index=False))
+print(cell_counts[["age_band", "area_code", "n_policies", "n_claims", "size_tier"]].to_string(index=False))
 
-thin_cells = cell_counts.filter(pl.col("n_policies") < 200)
+thin_cells = cell_counts[cell_counts["n_policies"] < 200]
 print(f"\nThin cells (<200 policies): {len(thin_cells)}")
-print(f"Medium cells (200-999):     {len(cell_counts.filter((pl.col('n_policies') >= 200) & (pl.col('n_policies') < 1000)))}")
-print(f"Thick cells (1000+):        {len(cell_counts.filter(pl.col('n_policies') >= 1000))}")
+print(f"Medium cells (200-999):     {len(cell_counts[(cell_counts['n_policies'] >= 200) & (cell_counts['n_policies'] < 1000)])}")
+print(f"Thick cells (1000+):        {len(cell_counts[cell_counts['n_policies'] >= 1000])}")
 
 # COMMAND ----------
 
@@ -210,14 +210,13 @@ print(f"Thick cells (1000+):        {len(cell_counts.filter(pl.col('n_policies')
 
 # COMMAND ----------
 
-def encode_features(df: pl.DataFrame) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+def encode_features(df: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """One-hot encode rating factors. Returns (X, y, exposure)."""
-    pdf = df.to_pandas()
 
-    age_dummies  = pd.get_dummies(pdf["age_band"],    prefix="age",  drop_first=False).astype(float)
-    area_dummies = pd.get_dummies(pdf["area_code"],   prefix="area", drop_first=False).astype(float)
-    veh_dummies  = pd.get_dummies(pdf["vehicle_age"], prefix="veh",  drop_first=False).astype(float)
-    ncd_dummies  = pd.get_dummies(pdf["ncd_group"],   prefix="ncd",  drop_first=False).astype(float)
+    age_dummies  = pd.get_dummies(df["age_band"],    prefix="age",  drop_first=False).astype(float)
+    area_dummies = pd.get_dummies(df["area_code"],   prefix="area", drop_first=False).astype(float)
+    veh_dummies  = pd.get_dummies(df["vehicle_age"], prefix="veh",  drop_first=False).astype(float)
+    ncd_dummies  = pd.get_dummies(df["ncd_group"],   prefix="ncd",  drop_first=False).astype(float)
 
     # Drop reference categories to avoid perfect collinearity
     ref_cols = ["age_36-50", "area_C", "veh_3-5yr", "ncd_3-4yr"]
@@ -226,8 +225,8 @@ def encode_features(df: pl.DataFrame) -> Tuple[np.ndarray, np.ndarray, np.ndarra
 
     return (
         X.values.astype(np.float64),
-        pdf["claims"].values.astype(np.float64),
-        pdf["exposure"].values.astype(np.float64),
+        df["claims"].values.astype(np.float64),
+        df["exposure"].values.astype(np.float64),
     )
 
 
@@ -265,7 +264,8 @@ y_tgt_train, y_tgt_test = y_tgt[idx_train], y_tgt[idx_test]
 exp_tgt_train, exp_tgt_test = exp_tgt[idx_train], exp_tgt[idx_test]
 
 # Attach cell identifiers to test set for segment-level analysis
-df_tgt_test = df_target[idx_test.tolist()]
+df_tgt_train = df_target.iloc[idx_train].reset_index(drop=True)
+df_tgt_test  = df_target.iloc[idx_test].reset_index(drop=True)
 
 print(f"Target train: {len(X_tgt_train):,} policies")
 print(f"Target test:  {len(X_tgt_test):,} policies")
@@ -369,8 +369,8 @@ coef_transfer = glm_transfer.coef_
 x = np.arange(len(FEATURE_NAMES))
 width = 0.35
 
-bars1 = ax.bar(x - width/2, coef_baseline, width, label="Target-only GLM", color="#2196F3", alpha=0.8)
-bars2 = ax.bar(x + width/2, coef_transfer, width, label="GLMTransfer",      color="#FF5722", alpha=0.8)
+ax.bar(x - width/2, coef_baseline, width, label="Target-only GLM", color="#2196F3", alpha=0.8)
+ax.bar(x + width/2, coef_transfer, width, label="GLMTransfer",      color="#FF5722", alpha=0.8)
 
 ax.axhline(0, color="black", linewidth=0.8, linestyle="--")
 ax.set_xticks(x)
@@ -379,9 +379,8 @@ ax.set_ylabel("Coefficient value (log scale)")
 ax.set_title("Coefficient comparison: Target-only GLM vs GLMTransfer\n(transfer anchors estimates near source — tighter in thin cells)")
 ax.legend()
 plt.tight_layout()
-plt.savefig("/tmp/thin_data_coefficients.png", dpi=120, bbox_inches="tight")
-plt.show()
-print("Coefficient plot saved.")
+display(fig)
+plt.close(fig)
 
 # COMMAND ----------
 
@@ -399,22 +398,23 @@ print("Coefficient plot saved.")
 from insurance_thin_data import InsuranceTabPFN
 
 # Identify thin cells in the training set
-df_tgt_train_pl = df_target[idx_train.tolist()]
+thin_age_bands  = thin_cells["age_band"].tolist()
+thin_area_codes = thin_cells["area_code"].tolist()
 
-thin_mask_train = df_tgt_train_pl["age_band"].is_in(
-    thin_cells["age_band"].to_list()
-) & df_tgt_train_pl["area_code"].is_in(
-    thin_cells["area_code"].to_list()
-)
+thin_mask_train = (
+    df_tgt_train["age_band"].isin(thin_age_bands) &
+    df_tgt_train["area_code"].isin(thin_area_codes)
+).values
 
-thin_train_idx = np.where(thin_mask_train.to_numpy())[0]
-thin_test_mask = (
-    df_tgt_test["age_band"].is_in(thin_cells["age_band"].to_list()) &
-    df_tgt_test["area_code"].is_in(thin_cells["area_code"].to_list())
-).to_numpy()
+thin_mask_test = (
+    df_tgt_test["age_band"].isin(thin_age_bands) &
+    df_tgt_test["area_code"].isin(thin_area_codes)
+).values
+
+thin_train_idx = np.where(thin_mask_train)[0]
 
 n_thin_train = thin_mask_train.sum()
-n_thin_test  = thin_test_mask.sum()
+n_thin_test  = thin_mask_test.sum()
 print(f"Thin cell training policies: {n_thin_train}")
 print(f"Thin cell test policies:     {n_thin_test}")
 
@@ -429,15 +429,15 @@ if n_thin_train >= 20 and n_thin_test >= 5:
             random_state=42,
         )
 
-        X_thin_train = X_tgt_train[thin_train_idx]
-        y_thin_train = y_tgt_train[thin_train_idx]
+        X_thin_train   = X_tgt_train[thin_train_idx]
+        y_thin_train   = y_tgt_train[thin_train_idx]
         exp_thin_train = exp_tgt_train[thin_train_idx]
 
         tabpfn_model.fit(X_thin_train, y_thin_train, exposure=exp_thin_train)
 
-        X_thin_test  = X_tgt_test[thin_test_mask]
-        y_thin_test  = y_tgt_test[thin_test_mask]
-        exp_thin_test = exp_tgt_test[thin_test_mask]
+        X_thin_test   = X_tgt_test[thin_mask_test]
+        y_thin_test   = y_tgt_test[thin_mask_test]
+        exp_thin_test = exp_tgt_test[thin_mask_test]
 
         lower, pred_tabpfn, upper = tabpfn_model.predict_interval(
             X_thin_test, exposure=exp_thin_test, alpha=0.10
@@ -490,14 +490,14 @@ from insurance_thin_data import CovariateShiftTest
 # If you had genuinely continuous features (e.g. sum insured), you'd also pass those here.
 shift_tester = CovariateShiftTest(
     categorical_cols=[],      # treating OHE columns as continuous is fine for MMD
-    n_permutations=500,
+    n_permutations=100,
     random_state=42,
 )
 
 # Use a subsample for speed (MMD is O(n^2) in memory)
 rng_shift = np.random.default_rng(99)
-src_idx = rng_shift.choice(len(X_src), size=2000, replace=False)
-tgt_idx = rng_shift.choice(len(X_tgt), size=1000, replace=False)
+src_idx = rng_shift.choice(len(X_src), size=500, replace=False)
+tgt_idx = rng_shift.choice(len(X_tgt), size=300, replace=False)
 
 shift_result = shift_tester.test(X_src[src_idx], X_tgt[tgt_idx])
 print(shift_result)
@@ -518,9 +518,8 @@ ax.set_xticklabels(FEATURE_NAMES, rotation=45, ha="right", fontsize=9)
 ax.set_ylabel("Marginal MMD² drift score")
 ax.set_title(f"Per-feature covariate shift: source vs target\n(MMD² = {shift_result.test_statistic:.4f}, p = {shift_result.p_value:.3f})")
 plt.tight_layout()
-plt.savefig("/tmp/thin_data_mmd_shift.png", dpi=120, bbox_inches="tight")
-plt.show()
-print("MMD shift plot saved.")
+display(fig)
+plt.close(fig)
 
 # COMMAND ----------
 
@@ -566,22 +565,23 @@ print(diag.summary_table(diag_result))
 
 # Build cell size lookup from training data
 train_cell_sizes = (
-    df_tgt_train_pl
-    .group_by(["age_band", "area_code"])
-    .agg(pl.len().alias("n_train"))
+    df_tgt_train
+    .groupby(["age_band", "area_code"], observed=True)
+    .agg(n_train=("claims", "count"))
+    .reset_index()
 )
 
 # Join to test set
-df_tgt_test_with_size = df_tgt_test.join(
+df_tgt_test_sized = df_tgt_test.merge(
     train_cell_sizes,
     on=["age_band", "area_code"],
     how="left",
-).with_columns(
-    pl.col("n_train").fill_null(0),
-    pl.when(pl.col("n_train") < 200).then(pl.lit("thin (<200)"))
-      .when(pl.col("n_train") < 1000).then(pl.lit("medium (200-999)"))
-      .otherwise(pl.lit("thick (1000+)"))
-      .alias("size_tier"),
+)
+df_tgt_test_sized["n_train"] = df_tgt_test_sized["n_train"].fillna(0).astype(int)
+df_tgt_test_sized["size_tier"] = pd.cut(
+    df_tgt_test_sized["n_train"],
+    bins=[0, 199, 999, float("inf")],
+    labels=["thin (<200)", "medium (200-999)", "thick (1000+)"],
 )
 
 tier_order = ["thin (<200)", "medium (200-999)", "thick (1000+)"]
@@ -589,7 +589,7 @@ tier_order = ["thin (<200)", "medium (200-999)", "thick (1000+)"]
 results_rows = []
 
 for tier in tier_order:
-    mask = (df_tgt_test_with_size["size_tier"] == tier).to_numpy()
+    mask = (df_tgt_test_sized["size_tier"] == tier).values
     if mask.sum() == 0:
         continue
 
@@ -668,9 +668,8 @@ plt.suptitle(
     fontsize=11,
 )
 plt.tight_layout()
-plt.savefig("/tmp/thin_data_benchmark.png", dpi=120, bbox_inches="tight")
-plt.show()
-print("Benchmark plot saved.")
+display(fig)
+plt.close(fig)
 
 # COMMAND ----------
 
@@ -696,79 +695,35 @@ ax.set_title("A/E ratio by segment size tier\n(transfer model closer to 1.0 in t
 ax.legend()
 ax.set_ylim(0.7, 1.4)
 plt.tight_layout()
-plt.savefig("/tmp/thin_data_ae_ratio.png", dpi=120, bbox_inches="tight")
-plt.show()
+display(fig)
+plt.close(fig)
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## 10. Full Pipeline (One-Shot)
-# MAGIC
-# MAGIC `TransferPipeline` orchestrates shift test + model fit + diagnostics in one call. This is what you'd use in production once you understand the components.
-
-# COMMAND ----------
-
-from insurance_thin_data import TransferPipeline
-
-pipeline = TransferPipeline(
-    method="glm",
-    glm_params={
-        "family": "poisson",
-        "lambda_pool": 0.005,
-        "lambda_debias": 0.05,
-        "scale_features": True,
-    },
-    shift_test=True,
-    shift_n_permutations=200,    # lower for speed; use 500+ in production
-    run_diagnostic=True,
-    diagnostic_test_size=0.2,
-    random_state=42,
-)
-
-pipeline_result = pipeline.run(
-    X_tgt_train, y_tgt_train, exp_tgt_train,
-    X_source=X_src,
-    y_source=y_src,
-    exposure_source=exp_src,
-)
-
-print(pipeline_result)
-print()
-if pipeline_result.shift_result is not None:
-    print(f"Shift test: {pipeline_result.shift_result}")
-if pipeline_result.diagnostic_result is not None:
-    diag_r = pipeline_result.diagnostic_result
-    print(f"\nNTG  = {diag_r.ntg:+.4f} ({diag_r.ntg_relative:+.1f}%)")
-    print(f"Transfer beneficial: {diag_r.transfer_is_beneficial}")
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ## 11. Key Findings
+# MAGIC ## 10. Key Findings
 # MAGIC
 # MAGIC | Finding | Detail |
 # MAGIC |---------|--------|
-# MAGIC | **Transfer helps most where data is thinnest** | In thin cells (<200 policies), GLMTransfer consistently reduces RMSE and Poisson deviance relative to the target-only baseline. In thick cells the gap narrows — there's enough target data to estimate the model well either way. |
-# MAGIC | **Debiasing correction is small** | The ||delta||_1 debiasing norm is small relative to the pooled coefficients, confirming that the source and target DGPs are compatible. If ||delta||_1 were large, you'd want to set `delta_threshold` and let the model auto-reject harmful sources. |
-# MAGIC | **MMD shift is detectable but moderate** | The source and target do have a detectable distribution shift (younger drivers and older vehicles over-represented in target). The debiasing step corrects for this — it's why the two-step algorithm outperforms naive pooling. |
-# MAGIC | **A/E closer to 1.0 with transfer** | The transfer model's aggregate A/E sits closer to 1.0 across all tiers. This matters for reserving: a target-only GLM in thin cells can have A/E swings of 15–20%, which the transfer model dampens. |
-# MAGIC | **TabPFN as fallback for the thinnest cells** | When cells have fewer than 50–100 policies, GLMTransfer's debiasing step has insufficient target signal. TabPFN's prior-fitted approach can still produce calibrated predictions, with conformal intervals that are honest about the uncertainty. |
-# MAGIC | **NTG is negative** | The Negative Transfer Gap is negative (transfer deviance < baseline deviance), confirming that using the source data helped rather than hurt. Always check this before deploying a transfer model. |
+# MAGIC | **Transfer helps most where data is thinnest** | In thin cells (<200 policies), GLMTransfer reduces RMSE and Poisson deviance relative to the target-only baseline. In thick cells the gap narrows — there is enough target data to estimate the model well either way. |
+# MAGIC | **Debiasing correction is small** | The ||delta||_1 debiasing norm is small relative to the pooled coefficients when source and target DGPs are compatible. If ||delta||_1 were large, set `delta_threshold` to auto-reject harmful sources. |
+# MAGIC | **MMD shift is detectable but moderate** | The source and target have a detectable distribution shift (younger drivers and older vehicles over-represented in target). The debiasing step corrects for this. |
+# MAGIC | **A/E closer to 1.0 with transfer** | The transfer model aggregate A/E sits closer to 1.0 across all tiers. A target-only GLM in thin cells can have A/E swings of 15-20%, which the transfer model dampens. |
+# MAGIC | **TabPFN as fallback for the thinnest cells** | When cells have fewer than 50-100 policies, GLMTransfer debiasing has insufficient target signal. TabPFN prior-fitted approach can still produce calibrated predictions. |
 # MAGIC
 # MAGIC ### When to use what
 # MAGIC
 # MAGIC | Scenario | Tool |
 # MAGIC |----------|------|
 # MAGIC | 500+ thin-segment policies, related book available | `GLMTransfer` (Tian & Feng) |
-# MAGIC | 50–500 thin policies, related book available | `GLMTransfer` with careful lambda tuning |
+# MAGIC | 50-500 thin policies, related book available | `GLMTransfer` with careful lambda tuning |
 # MAGIC | < 100 policies, no related book | `InsuranceTabPFN` |
 # MAGIC | Uncertain if transfer helps | Run `CovariateShiftTest` + `NegativeTransferDiagnostic` first |
-# MAGIC | Production one-shot | `TransferPipeline` with `shift_test=True, run_diagnostic=True` |
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ### Summary statistics for reference
+# MAGIC ### Summary statistics
 
 # COMMAND ----------
 
@@ -789,7 +744,7 @@ print(f"\nDeviance improvement: {dev_improvement:+.1f}%")
 print(f"RMSE improvement:     {rmse_improvement:+.1f}%")
 
 print("\nShift test result:")
-print(f"  MMD²  = {shift_result.test_statistic:.4f}")
+print(f"  MMD2  = {shift_result.test_statistic:.4f}")
 print(f"  p     = {shift_result.p_value:.3f}")
 print(f"  Interpretation: {'moderate shift — debiasing earns its keep' if shift_result.p_value < 0.1 else 'low shift — distributions are compatible'}")
 
