@@ -579,10 +579,10 @@ inventory.register(cb_mrm_card, cb_tier)
 inventory.register(glm_mrm_card, glm_tier)
 
 # Show what's in the inventory
-models = inventory.list_models()
+models = inventory.list()
 print(f"Registry contains {len(models)} models:")
 for m in models:
-    print(f"  [{m['model_id']}] tier={m['tier']} status={m['champion_challenger_status']} "
+    print(f"  [{m['model_id']}] tier={m['materiality_tier']} status={m['champion_challenger_status']} "
           f"rag={m.get('overall_rag', 'N/A')}")
 
 # COMMAND ----------
@@ -745,7 +745,7 @@ ax.set_xlim(0, 0.5)
 
 plt.tight_layout()
 plt.savefig("/tmp/governance_benchmark.png", dpi=120, bbox_inches="tight")
-display(fig)
+plt.show()
 
 # COMMAND ----------
 
@@ -800,7 +800,7 @@ for ax, bands, title, color in [
 
 plt.tight_layout()
 plt.savefig("/tmp/ae_by_decile.png", dpi=120, bbox_inches="tight")
-display(fig)
+plt.show()
 
 # COMMAND ----------
 
@@ -856,7 +856,7 @@ for ax, pred_train, pred_val, model_name, color in [
 
 plt.tight_layout()
 plt.savefig("/tmp/psi_chart.png", dpi=120, bbox_inches="tight")
-display(fig)
+plt.show()
 
 # COMMAND ----------
 
