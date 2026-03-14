@@ -618,7 +618,6 @@ plt.suptitle(
 
 plt.savefig("/tmp/distributional_glm_benchmark.png", dpi=150, bbox_inches="tight")
 plt.show()
-display(plt.gcf())
 
 # COMMAND ----------
 
@@ -724,7 +723,6 @@ print("(p > 0.05 means we cannot reject normality — model is well specified)")
 plt.tight_layout()
 plt.savefig("/tmp/distributional_glm_residuals.png", dpi=150, bbox_inches="tight")
 plt.show()
-display(plt.gcf())
 
 # COMMAND ----------
 
