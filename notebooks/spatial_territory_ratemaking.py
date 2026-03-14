@@ -54,7 +54,7 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install "numpy>=1.25,<2.0" scikit-learn insurance-spatial pymc arviz polars matplotlib
+# MAGIC %pip install "insurance-spatial>=0.2.1" pymc arviz polars matplotlib
 
 # COMMAND ----------
 
