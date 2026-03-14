@@ -54,7 +54,11 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install insurance-spatial pymc arviz polars matplotlib
+# MAGIC %pip install "numpy>=1.25" insurance-spatial pymc arviz polars matplotlib
+
+# COMMAND ----------
+
+dbutils.library.restartPython()
 
 # COMMAND ----------
 
