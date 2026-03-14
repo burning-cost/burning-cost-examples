@@ -25,7 +25,7 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install "insurance-demand[dml]>=0.1.5" "scipy<1.11" catboost polars matplotlib lifelines
+# MAGIC %pip install "insurance-demand[dml]>=0.1.5" "scikit-learn>=1.4,<1.6" "doubleml>=0.7,<0.9" catboost polars matplotlib lifelines
 
 # COMMAND ----------
 
