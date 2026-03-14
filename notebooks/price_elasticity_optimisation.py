@@ -19,7 +19,7 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install "insurance-elasticity[all]"
+# MAGIC %pip install "econml==0.15.1" catboost matplotlib "insurance-elasticity"
 
 # COMMAND ----------
 
@@ -81,7 +81,7 @@ print(
 
 # COMMAND ----------
 
-display(df.head(5).to_pandas())
+print(df.head(5).to_pandas())
 
 # COMMAND ----------
 
@@ -428,7 +428,7 @@ print(
 
 # COMMAND ----------
 
-display(ncd_summary.to_pandas())
+print(ncd_summary.to_pandas())
 
 # COMMAND ----------
 
@@ -565,7 +565,7 @@ for row in audit.head(5).iter_rows(named=True):
 
 # COMMAND ----------
 
-display(audit.head(20).to_pandas())
+print(audit.head(20).to_pandas())
 
 # COMMAND ----------
 

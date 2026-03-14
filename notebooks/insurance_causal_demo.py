@@ -41,7 +41,7 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install insurance-causal catboost polars numpy matplotlib scikit-learn
+# MAGIC %pip install catboost matplotlib scikit-learn polars pyarrow "doubleml==0.7.1" "insurance-causal" "numpy<2" "statsmodels==0.13.5" --force-reinstall
 
 # COMMAND ----------
 
@@ -118,7 +118,7 @@ prior_claims = rng.choice([0, 1, 2, 3], N_POLICIES, p=[0.72, 0.20, 0.06, 0.02]).
 regions = ["london", "south_east", "south_west", "east_midlands",
            "west_midlands", "north_west", "north_east", "yorkshire",
            "wales", "scotland"]
-region_probs = [0.14, 0.12, 0.08, 0.09, 0.09, 0.11, 0.07, 0.10, 0.06, 0.08]
+region_probs = [0.15, 0.13, 0.08, 0.09, 0.09, 0.12, 0.07, 0.11, 0.07, 0.09]  # normalised to sum to 1
 region = np.array(regions)[rng.choice(len(regions), N_POLICIES, p=region_probs)]
 is_urban = np.isin(region, ["london", "south_east", "west_midlands"]).astype(float)
 

@@ -297,10 +297,8 @@ model = catboost.CatBoostRegressor(
     random_seed=42,
     verbose=0,
 )
-model.fit(
-    X_train, y_train,
-    feature_names=FEATURE_NAMES,
-)
+train_pool = catboost.Pool(X_train, y_train, feature_names=FEATURE_NAMES)
+model.fit(train_pool)
 print(f"CatBoost fitted: {model.tree_count_} trees")
 print(f"  loss_function = Tweedie:variance_power=1.5")
 print(f"  depth = 6, iterations = 400, lr = 0.05")
@@ -415,11 +413,11 @@ for i in range(8):
     })
 
 html_rows = "".join(
-    f"<tr>{''.join(f'<td style=\"padding:4px 12px;text-align:right\">{v}</td>' for v in r.values())}</tr>"
+    "<tr>" + "".join(f'<td style="padding:4px 12px;text-align:right">{v}</td>' for v in r.values()) + "</tr>"
     for r in rows
 )
 headers = "".join(
-    f"<th style=\"padding:4px 12px;text-align:right;background:#2d6a9f;color:white\">{h}</th>"
+    f'<th style="padding:4px 12px;text-align:right;background:#2d6a9f;color:white">{h}</th>'
     for h in rows[0].keys()
 )
 displayHTML(f"""
@@ -511,17 +509,16 @@ for d in range(10):
     })
 
 html_rows = "".join(
-    "<tr>"
-    + "".join(
-        f"<td style=\"padding:4px 12px;text-align:right;"
-        f"{'background:#ffe0e0' if r.get('Flag') else ''}\">{v}</td>"
+    "<tr>" + "".join(
+        '<td style="padding:4px 12px;text-align:right;'
+        + ('background:#ffe0e0' if r.get('Flag') else '')
+        + '">'  + str(v) + '</td>'
         for v in r.values()
-    )
-    + "</tr>"
+    ) + "</tr>"
     for r in decile_rows
 )
 headers = "".join(
-    f"<th style=\"padding:4px 12px;text-align:right;background:#2d6a9f;color:white\">{h}</th>"
+    f'<th style="padding:4px 12px;text-align:right;background:#2d6a9f;color:white">{h}</th>'
     for h in decile_rows[0].keys()
 )
 displayHTML(f"""
@@ -577,11 +574,11 @@ for row in seg_df.iter_rows(named=True):
     })
 
 html_rows = "".join(
-    f"<tr>{''.join(f'<td style=\"padding:4px 12px;text-align:right\">{v}</td>' for v in r.values())}</tr>"
+    "<tr>" + "".join(f'<td style="padding:4px 12px;text-align:right">{v}</td>' for v in r.values()) + "</tr>"
     for r in seg_rows
 )
 headers = "".join(
-    f"<th style=\"padding:4px 12px;text-align:right;background:#2d6a9f;color:white\">{h}</th>"
+    f'<th style="padding:4px 12px;text-align:right;background:#2d6a9f;color:white">{h}</th>'
     for h in seg_rows[0].keys()
 )
 displayHTML(f"""
@@ -678,11 +675,11 @@ for alpha in ALPHA_LEVELS:
     })
 
 html_rows = "".join(
-    f"<tr>{''.join(f'<td style=\"padding:4px 12px;text-align:right\">{v}</td>' for v in r.values())}</tr>"
+    "<tr>" + "".join(f'<td style="padding:4px 12px;text-align:right">{v}</td>' for v in r.values()) + "</tr>"
     for r in reserve_rows
 )
 headers = "".join(
-    f"<th style=\"padding:4px 12px;text-align:right;background:#2d6a9f;color:white\">{h}</th>"
+    f'<th style="padding:4px 12px;text-align:right;background:#2d6a9f;color:white">{h}</th>'
     for h in reserve_rows[0].keys()
 )
 displayHTML(f"""
@@ -721,8 +718,8 @@ intervals_90 = cp_pearson_w.predict_interval(X_test, alpha=0.10)
 pred_90   = intervals_90["point"].to_numpy()
 widths_90 = (intervals_90["upper"] - intervals_90["lower"]).to_numpy()
 
-low_risk_idx  = np.argmin(pred_90)
-high_risk_idx = np.argmax(pred_90)
+low_risk_idx  = int(np.argmin(pred_90))
+high_risk_idx = int(np.argmax(pred_90))
 
 lo_w = float(intervals_90["lower"][low_risk_idx])
 lo_p = float(intervals_90["point"][low_risk_idx])

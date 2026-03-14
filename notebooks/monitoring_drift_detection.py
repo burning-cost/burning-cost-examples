@@ -52,6 +52,10 @@ from __future__ import annotations
 import numpy as np
 import polars as pl
 
+# Compatibility patch: np.trapezoid added in NumPy 2.0
+if not hasattr(np, "trapezoid"):
+    np.trapezoid = np.trapz
+
 
 def _psi_band(v: float) -> str:
     """Map a PSI value to its traffic-light band label."""
