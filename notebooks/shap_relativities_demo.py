@@ -24,7 +24,7 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install "shap-relativities>=0.2.1" "shap>=0.42" "catboost>=1.2" "numpy<2.0" statsmodels
+# MAGIC %pip install "shap-relativities>=0.2.2" "shap>=0.42" "catboost>=1.2" "numpy<2.0" statsmodels
 
 # COMMAND ----------
 
