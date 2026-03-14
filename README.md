@@ -8,25 +8,100 @@ End-to-end insurance pricing workflows using the Burning Cost open-source librar
 
 UK pricing teams often work in silos. The data science team builds a GBM. The actuarial team validates it in a separate spreadsheet. The IT team deploys it without an audit trail. The compliance team scrambles when the FCA asks for ENBP records.
 
-These examples show how the Burning Cost stack fits together into a single, coherent workflow — from synthetic data through to ICOBS 6B.2.51R audit reporting.
+These examples show how the Burning Cost stack fits together into coherent, end-to-end workflows — from synthetic data through to ICOBS 6B.2.51R audit reporting and FCA Consumer Duty evidence packs.
 
 ---
 
-## What the example does
+## Pipeline examples
 
-`examples/end_to_end_motor_pricing.py` runs a full UK motor pricing pipeline:
+Full workflows that span multiple libraries and stages of the pricing lifecycle. Start here if you want to understand how the pieces fit together.
 
-1. **Generate a synthetic portfolio** using [insurance-synthetic](https://github.com/burning-cost/insurance-synthetic). A vine copula captures the tail dependence between young driver age, high vehicle group, and zero NCD — the interactions that matter most for UK motor frequency.
+### `end_to_end_motor_pricing.py`
 
-2. **Train a CatBoost frequency model** — Poisson GBM with log(exposure) offset. Two versions: a conservative champion and a more complex challenger. CatBoost handles categorical rating factors natively, which avoids the SHAP distortion you get from one-hot encoding.
+A complete UK motor pricing pipeline: synthetic portfolio generation via vine copula, CatBoost frequency model training, SHAP relativity extraction, holdout validation, and champion/challenger deployment with ENBP audit logging.
 
-3. **Extract SHAP relativities** using [shap-relativities](https://github.com/burning-cost/shap-relativities). Output is a table of `(feature, level, relativity)` triples in the same format as GLM `exp(beta)` relativities — readable by any pricing actuary, presentable to an underwriting committee.
+```bash
+pip install insurance-synthetic shap-relativities insurance-deploy catboost shap scipy polars
+uv run python examples/end_to_end_motor_pricing.py
+```
 
-4. **Run a model validation** using manual checks (calibration ratio, RMSE lift, Gini coefficient). The [insurance-validation](https://github.com/burning-cost/insurance-validation) library will slot in here when released to produce full PRA SS1/23-compliant documentation.
+### `gbm_to_glm_pipeline.py`
 
-5. **Deploy with champion/challenger** using [insurance-deploy](https://github.com/burning-cost/insurance-deploy). Shadow mode by default — the challenger scores every quote without affecting customer prices. Hash-based deterministic routing means every decision can be audited. ENBP compliance is tracked per ICOBS 6B.2.51R.
+Takes a fitted CatBoost frequency model and converts it to a GLM-compatible relativity table: SHAP decomposition into additive contributions, monotonicity smoothing, and GLM re-fit with SHAP-derived offsets. The output is a rating table an underwriting committee can read and a regulator can audit.
 
-The script prints outputs at each stage. Read it top-to-bottom as a workflow guide.
+```bash
+pip install insurance-synthetic shap-relativities catboost shap polars scikit-learn
+uv run python examples/gbm_to_glm_pipeline.py
+```
+
+### `fca_compliance_pipeline.py`
+
+Runs a full Consumer Duty compliance workflow: proxy discrimination audit using insurance-fairness, ENBP breach detection via insurance-deploy, and causal rate change attribution with insurance-causal-policy. Output is a structured evidence pack in Markdown.
+
+```bash
+pip install insurance-fairness insurance-deploy insurance-causal-policy polars scipy
+uv run python examples/fca_compliance_pipeline.py
+```
+
+### `thin_data_pipeline.py`
+
+Demonstrates credibility-weighted pricing for low-volume segments: Bühlmann-Straub credibility blending of segment-level experience with portfolio priors, hierarchical Bayesian posterior estimation, and uncertainty quantification for underwriting sign-off.
+
+```bash
+pip install insurance-credibility bayesian-pricing polars scipy numpy
+uv run python examples/thin_data_pipeline.py
+```
+
+---
+
+## Library deep dives
+
+Focused examples that explore one library in depth. Use these when you are integrating a specific library and want to understand its full API.
+
+### `causal_rate_change_evaluation.py`
+
+Full SDID workflow using [insurance-causal-policy](https://github.com/burning-cost/insurance-causal-policy): synthetic motor portfolio with staggered rate changes across segments, event study pre-treatment validation, HonestDiD sensitivity analysis, and structured FCA Consumer Duty evidence pack output. The example shows why a before-and-after comparison gives a biased estimate and how SDID eliminates that bias.
+
+```bash
+pip install insurance-causal-policy polars scipy cvxpy matplotlib
+uv run python examples/causal_rate_change_evaluation.py
+```
+
+### `price_elasticity_optimisation.py`
+
+Complete DML elasticity workflow using [insurance-elasticity](https://github.com/burning-cost/insurance-elasticity): estimation on a synthetic 50,000-policy motor book, heterogeneous CATE by NCD band, channel, and age, ENBP-constrained profit-maximising optimiser, and an efficient frontier showing the renewal rate versus expected profit trade-off. Covers the near-deterministic price problem and how to diagnose it before fitting.
+
+```bash
+pip install "insurance-elasticity[all]" polars
+uv run python examples/price_elasticity_optimisation.py
+```
+
+### `conformal_prediction_intervals.py`
+
+Tweedie conformal prediction intervals versus bootstrap using [insurance-conformal](https://github.com/burning-cost/insurance-conformal): side-by-side comparison on a synthetic motor book, per-segment coverage analysis across risk deciles and vehicle groups, and interval width distribution. Shows exactly where the bootstrap fails its stated coverage target and confirms conformal holds by construction.
+
+```bash
+pip install "insurance-conformal[all]" catboost polars
+uv run python examples/conformal_prediction_intervals.py
+```
+
+### `champion_challenger_deployment.py`
+
+Full deployment lifecycle using [insurance-deploy](https://github.com/burning-cost/insurance-deploy): shadow mode experiment setup, per-quote logging with ENBP compliance flags, bootstrap likelihood-ratio test for model promotion, ENBP audit report generation, and power analysis showing realistic timelines to loss ratio significance. A practical reference for building a first FCA-compliant champion/challenger setup.
+
+```bash
+pip install insurance-deploy polars scipy numpy
+uv run python examples/champion_challenger_deployment.py
+```
+
+### `model_drift_monitoring.py`
+
+Full monitoring stack using [insurance-monitoring](https://github.com/burning-cost/insurance-monitoring) with three deliberately induced failure modes: covariate shift (older driver mix), calibration deterioration (segment-level A/E drift), and discriminatory power loss (Gini decay). Covers exposure-weighted PSI and CSI, segment A/E ratios with Poisson confidence intervals, Gini drift z-test, and governance reporting suitable for a PRA SS1/23 model risk log.
+
+```bash
+pip install insurance-monitoring polars numpy scipy
+uv run python examples/model_drift_monitoring.py
+```
 
 ---
 
@@ -40,46 +115,19 @@ cd burning-cost-examples
 uv sync
 ```
 
-With pip:
-
-```bash
-pip install insurance-synthetic shap-relativities insurance-deploy catboost shap scipy polars
-```
-
----
-
-## Run the example
-
-```bash
-uv run python examples/end_to_end_motor_pricing.py
-```
-
-Expected runtime: 2–5 minutes. The vine copula fitting and SHAP computation are the bottlenecks.
-
----
-
-## Libraries used
-
-| Library | What it does |
-|---------|-------------|
-| [insurance-synthetic](https://github.com/burning-cost/insurance-synthetic) | Vine copula synthetic portfolio generator with actuarially valid exposure handling |
-| [shap-relativities](https://github.com/burning-cost/shap-relativities) | Multiplicative rating factor relativities from GBM SHAP values |
-| [insurance-validation](https://github.com/burning-cost/insurance-validation) | PRA SS1/23 model validation documentation (forthcoming) |
-| [insurance-deploy](https://github.com/burning-cost/insurance-deploy) | Champion/challenger framework with ENBP audit trail (ICOBS 6B.2.51R) |
-
----
-
-## Further reading
-
-Methodology posts and worked examples are at [burning-cost.github.io](https://burning-cost.github.io).
-
-The Burning Cost Pricing Course covers the actuarial background behind each step — vine copulas for insurance data, SHAP attribution for correlated rating factors, and champion/challenger design under FCA Consumer Duty.
+Individual dependency commands are listed under each example above. The `uv sync` command installs everything needed for all examples at once.
 
 ---
 
 ## Note on synthetic data
 
-The portfolio generated in step 1 is entirely synthetic. It has realistic statistical properties but does not represent any real book of business. In production, replace the seed portfolio construction with your actual policy and claims extract. The column names match the `uk_motor_schema()` definition in insurance-synthetic — rename your columns to match and the rest of the pipeline runs unchanged.
+All portfolios generated in these examples are entirely synthetic. They have realistic statistical properties but do not represent any real book of business. In production, replace the synthetic data generation step with your actual policy and claims extract. Column names match the `uk_motor_schema()` definition in [insurance-synthetic](https://github.com/burning-cost/insurance-synthetic) — rename your columns to match and the rest of each pipeline runs unchanged.
+
+---
+
+## Further reading
+
+Methodology posts and detailed walkthroughs for each library are at [burning-cost.github.io](https://burning-cost.github.io).
 
 ---
 
