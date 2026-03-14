@@ -33,7 +33,27 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install insurance-glm-tools matplotlib polars
+# Install torch ecosystem first (handles its own deps), then insurance-glm-tools without deps
+# This avoids numpy/scipy version conflicts in the isolated serverless environment.
+import subprocess, sys
+
+def _pip(*args):
+    r = subprocess.run([sys.executable, "-m", "pip", "install"] + list(args),
+                       capture_output=True, text=True)
+    if r.returncode != 0:
+        print(r.stdout[-2000:])
+        print(r.stderr[-2000:])
+        raise RuntimeError(f"pip install failed: {args}")
+
+# Phase 1: core ecosystem with compatible versions
+_pip("torch>=2.0", "numpy>=1.24,<2", "scipy>=1.11,<1.14",
+     "statsmodels>=0.14,<0.15", "scikit-learn>=1.3",
+     "pandas>=2.0", "patsy", "polars", "matplotlib")
+
+# Phase 2: insurance-glm-tools without deps (deps already installed above)
+_pip("insurance-glm-tools", "--no-deps")
+
+print("All packages installed.")
 
 # COMMAND ----------
 
@@ -467,8 +487,8 @@ if n_unseen_policies > 0:
     true_make_effects = np.array([make_effect_map[m] for m in df_unseen_for_base["vehicle_make"]])
     # Compare predicted make contribution (embedding captures this)
     # Embedding predictions minus base-only predictions = attributed make effect
-    embedding_make_contrib = np.log((pred_nested_unseen / exp_unseen).clip(min=1e-10)) - \
-                             np.log((pred_base_unseen / exp_unseen).clip(min=1e-10))
+    embedding_make_contrib = np.log(np.asarray(pred_nested_unseen / exp_unseen, dtype=float).clip(min=1e-10)) - \
+                             np.log(np.asarray(pred_base_unseen / exp_unseen, dtype=float).clip(min=1e-10))
 
     corr = np.corrcoef(true_make_effects, embedding_make_contrib)[0, 1]
 
@@ -575,7 +595,7 @@ ax2.axhline(dev_base_test, color="#e74c3c", linestyle="--", linewidth=1.0, alpha
 ax2.grid(True, alpha=0.3)
 
 plt.tight_layout()
-display(fig)
+display(plt.gcf())
 plt.close()
 
 # COMMAND ----------
@@ -683,7 +703,7 @@ ax.grid(True, alpha=0.3, axis="y")
 ax.set_xticks(range(16))
 
 plt.tight_layout()
-display(fig)
+display(plt.gcf())
 plt.close()
 
 # COMMAND ----------
@@ -726,7 +746,7 @@ if dp is not None:
     ax2.grid(True, alpha=0.3)
 
     plt.tight_layout()
-    display(fig)
+    display(plt.gcf())
     plt.close()
 
 # COMMAND ----------
@@ -793,8 +813,8 @@ X_r2vf_test_mat, col_names_r = build_refit_matrix(
     {factor: fc.level_map(factor).level_to_group for factor in ["ncd_years", "vehicle_age"]},
     ["ncd_years", "vehicle_age"],
 )
-X_r2vf_test_sm = sm.add_constant(X_r2vf_test_mat, has_constant="add")
-pred_r2vf_test = r2vf_result.predict(X_r2vf_test_sm, offset=np.log(exp_test))
+# build_refit_matrix already includes an intercept column — do not add_constant
+pred_r2vf_test = r2vf_result.predict(X_r2vf_test_mat, offset=np.log(exp_test))
 dev_r2vf_test = poisson_deviance_holdout(y_test, pred_r2vf_test)
 
 n_quint_params = quint_result.df_model + 1
