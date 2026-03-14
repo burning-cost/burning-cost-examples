@@ -318,8 +318,8 @@ rating_grid = pd.DataFrame({
 })
 
 # Offset = 1 year of exposure for these grid predictions
-X_grid     = sm.add_constant(rating_grid[freq_features])
-X_grid_sev = sm.add_constant(rating_grid[sev_features])
+X_grid     = sm.add_constant(rating_grid[freq_features].values, has_constant='add')
+X_grid_sev = sm.add_constant(rating_grid[sev_features].values, has_constant='add')
 
 freq_pred = freq_model.predict(X_grid, offset=np.zeros(50))
 sev_pred  = sev_model.predict(X_grid_sev)

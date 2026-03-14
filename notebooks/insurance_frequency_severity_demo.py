@@ -37,7 +37,7 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install insurance-frequency-severity polars matplotlib statsmodels scipy numpy pandas
+# MAGIC %pip install insurance-frequency-severity==0.2.1 polars matplotlib statsmodels scipy numpy pandas
 
 # COMMAND ----------
 
@@ -217,10 +217,10 @@ X_claims = sm.add_constant(df_claims[feature_cols].values)
 X_claims_df = pd.DataFrame(X_claims, columns=["const"] + feature_cols)
 
 sev_glm = sm.GLM(
-    df_claims["avg_severity"],
+    df_claims["avg_severity"].values,
     X_claims_df,
     family=sm.families.Gamma(link=sm.families.links.Log()),
-    var_weights=df_claims["claim_count"],
+    var_weights=df_claims["claim_count"].values,
 ).fit()
 
 print(f"\nSeverity GLM (Gamma, log link):")
