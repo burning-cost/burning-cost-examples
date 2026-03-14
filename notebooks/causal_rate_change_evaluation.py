@@ -504,12 +504,26 @@ displayHTML(f"<div style='font-family: monospace; white-space: pre-wrap;'>{evide
 # COMMAND ----------
 
 import json as _json
+import numpy as _np
+
+class _NumpyEncoder(_json.JSONEncoder):
+    """Handle numpy scalars that Python's json module can't serialize."""
+    def default(self, obj):
+        if isinstance(obj, _np.integer):
+            return int(obj)
+        if isinstance(obj, _np.floating):
+            return float(obj)
+        if isinstance(obj, _np.bool_):
+            return bool(obj)
+        if isinstance(obj, _np.ndarray):
+            return obj.tolist()
+        return super().default(obj)
 
 evidence_dict = pack.to_dict()
 print("Evidence pack metadata:")
-print(_json.dumps(evidence_dict["metadata"], indent=2))
+print(_json.dumps(evidence_dict["metadata"], indent=2, cls=_NumpyEncoder))
 print("\nEstimation summary:")
-print(_json.dumps(evidence_dict["estimation"], indent=2))
+print(_json.dumps(evidence_dict["estimation"], indent=2, cls=_NumpyEncoder))
 
 # COMMAND ----------
 
@@ -564,7 +578,7 @@ CLAIMS AVOIDED
 
 METHODOLOGY CREDIBILITY
   The comparison group is a synthetic control built from the 7 untreated
-  regions. Pre-treatment parallel trends test passes (p = {result.pre_trend_pval:.3f if result.pre_trend_pval is not None else 1.0:.3f}) —
+  regions. Pre-treatment parallel trends test passes (p = {result.pre_trend_pval if result.pre_trend_pval is not None else 1.0:.3f}) —
   the treated and control regions were on comparable trajectories before
   Q1 2023. The effect is not attributable to the market-wide frequency
   rise (which affected all regions equally and is absorbed by the

@@ -540,8 +540,12 @@ print(f"{'Test log-likelihood':<40} {glm_ll_test:>14.1f} {dglm_ll_test:>14.1f}")
 print(f"{'Delta log-likelihood (DGLM - GLM)':<40} {'':>14} {dglm_ll_test - glm_ll_test:>+14.1f}")
 print(f"{'Phi MAE vs true phi':<40} {glm_phi_mae:>14.4f} {dglm_phi_mae:>14.4f}")
 print(f"{'CV Spearman rho vs true CV':<40} {glm_rank_corr:>14.4f} {dglm_rank_corr:>14.4f}")
-print(f"{'90% coverage (aggregate)':<40} {cov_glm.iloc[0][\"empirical_coverage\"]:>14.3f} {cov_dglm.iloc[0][\"empirical_coverage\"]:>14.3f}")
-print(f"{'95% coverage (aggregate)':<40} {cov_glm.iloc[1][\"empirical_coverage\"]:>14.3f} {cov_dglm.iloc[1][\"empirical_coverage\"]:>14.3f}")
+glm_cov90 = cov_glm.iloc[0]["empirical_coverage"]
+dglm_cov90 = cov_dglm.iloc[0]["empirical_coverage"]
+print(f"{'90% coverage (aggregate)':<40} {glm_cov90:>14.3f} {dglm_cov90:>14.3f}")
+glm_cov95 = cov_glm.iloc[1]["empirical_coverage"]
+dglm_cov95 = cov_dglm.iloc[1]["empirical_coverage"]
+print(f"{'95% coverage (aggregate)':<40} {glm_cov95:>14.3f} {dglm_cov95:>14.3f}")
 
 # COMMAND ----------
 
@@ -678,7 +682,7 @@ ax.grid(True, alpha=0.3, axis="y")
 
 plt.tight_layout()
 plt.savefig("/tmp/distributional_benchmark.png", dpi=150, bbox_inches="tight")
-display(fig)
+plt.show()
 plt.close()
 print("Saved: /tmp/distributional_benchmark.png")
 

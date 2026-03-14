@@ -48,6 +48,9 @@ from __future__ import annotations
 import warnings
 import numpy as np
 import polars as pl
+
+# numpy 2.0 compatibility: trapezoid renamed from trapz
+_trapz = getattr(np, "trapezoid", np.trapz)
 import matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
@@ -150,7 +153,7 @@ sim = BonusMalusSimulator(scale, claim_frequency=claim_freq)
 T = scale.transition_matrix(claim_frequency=claim_freq)
 
 fig, ax = plt.subplots(figsize=(8, 6))
-im = ax.imshow(T.to_numpy(), cmap="Blues", aspect="auto", vmin=0, vmax=1)
+im = ax.imshow(T, cmap="Blues", aspect="auto", vmin=0, vmax=1)
 n = T.shape[0]
 for i in range(n):
     for j in range(n):
@@ -168,7 +171,7 @@ ax.set_title(f"NCD Transition Matrix  (claim frequency = {claim_freq:.0%})", fon
 plt.colorbar(im, ax=ax, label="Transition probability")
 plt.tight_layout()
 plt.show()
-print(f"Row sums (should all be 1.0): {T.to_numpy().sum(axis=1).round(6)}")
+print(f"Row sums (should all be 1.0): {T.sum(axis=1).round(6)}")
 
 # COMMAND ----------
 
@@ -197,9 +200,9 @@ stat_results = {}
 for freq, col, label in zip(frequencies, colors, labels):
     sim_f = BonusMalusSimulator(scale, claim_frequency=freq)
     dist = sim_f.stationary_distribution(method="analytical")
-    stat_results[freq] = dist
-    probs = [dist[i] for i in range(len(dist))]
-    axes[0].plot(range(len(dist)), probs, "o-", color=col, label=label, linewidth=2, markersize=5)
+    dist_arr = dist["stationary_prob"].to_numpy()  # polars DataFrame -> numpy
+    stat_results[freq] = dist_arr
+    axes[0].plot(range(len(dist_arr)), dist_arr, "o-", color=col, label=label, linewidth=2, markersize=5)
 
 axes[0].set_xlabel("NCD Level", fontsize=11)
 axes[0].set_ylabel("Steady-state proportion", fontsize=11)
@@ -212,7 +215,7 @@ axes[0].set_xticklabels([f"L{i}\n({int(scale_df['ncd_percent'][i])}%)" for i in 
 epfs = []
 for freq in frequencies:
     sim_f = BonusMalusSimulator(scale, claim_frequency=freq)
-    epf = sim_f.expected_premium_factor()
+    epf = float(sim_f.expected_premium_factor())
     epfs.append(epf)
     avg_ncd = (1 - epf) * 100
 
@@ -235,7 +238,7 @@ print(f"{'Frequency':>12} | {'Avg NCD':>10} | {'Avg Prem Factor':>16} | {'% at m
 print("-" * 65)
 for freq, epf in zip(frequencies, epfs):
     dist = stat_results[freq]
-    pct_max = dist[9] * 100
+    pct_max = float(stat_results[freq][9]) * 100
     print(f"{freq:>11.0%}  | {(1-epf)*100:>9.1f}% | {epf:>16.4f} | {pct_max:>17.1f}%")
 
 # COMMAND ----------
@@ -273,7 +276,7 @@ threshold_df = ct.full_analysis(annual_premium=annual_premium, years_horizon=yea
 fig, axes = plt.subplots(1, 2, figsize=(14, 5))
 
 levels = threshold_df["level"].to_list()
-thresholds = threshold_df["threshold"].to_list()
+thresholds = threshold_df["claiming_threshold"].to_list()
 ncd_pcts = [int(scale_df["ncd_percent"][lv]) for lv in levels]
 
 bar_colors_t = plt.cm.RdYlGn(np.linspace(0.2, 0.85, len(levels)))
@@ -303,7 +306,7 @@ horizon_df = ct.threshold_curve(
     max_horizon=7,
 )
 horizons = horizon_df["years_horizon"].to_list()
-thresh_curve = horizon_df["threshold"].to_list()
+thresh_curve = horizon_df["threshold_amount"].to_list()
 
 axes[1].plot(horizons, thresh_curve, "o-", color="#2563eb", linewidth=2.5, markersize=7)
 axes[1].fill_between(horizons, thresh_curve, alpha=0.12, color="#2563eb")
@@ -340,7 +343,7 @@ for prem, col in zip(premiums, premium_colors):
     ta = ct.full_analysis(annual_premium=float(prem), years_horizon=3)
     ax.plot(
         [f"L{lv}\n{int(scale_df['ncd_percent'][lv])}%" for lv in ta["level"].to_list()],
-        ta["threshold"].to_list(),
+        ta["claiming_threshold"].to_list(),
         "o-", color=col, linewidth=2, markersize=5, label=f"£{prem}/yr"
     )
 
@@ -428,7 +431,7 @@ fleet_result = fleet_df.join(result_df, on="risk_id")
 # Plot: EMF distribution
 fig, axes = plt.subplots(1, 2, figsize=(13, 5))
 
-emfs = fleet_result["emf"].to_list()
+emfs = fleet_result["mod_factor"].to_list()
 axes[0].hist(emfs, bins=18, color="#2563eb", alpha=0.8, edgecolor="white")
 axes[0].axvline(x=1.0, color="#dc2626", linewidth=2, linestyle="--", label="EMF = 1.0 (neutral)")
 axes[0].axvline(x=float(np.mean(emfs)), color="#16a34a", linewidth=2, linestyle="-",
@@ -512,7 +515,7 @@ for ballast in ballast_values:
         fleet_df.select(["risk_id", "expected_losses", "actual_losses"]),
         cap=2.0, floor=0.5
     )
-    emf_distributions[ballast] = r["emf"].to_list()
+    emf_distributions[ballast] = r["mod_factor"].to_list()
 
 means = [np.mean(emf_distributions[b]) for b in ballast_values]
 stds = [np.std(emf_distributions[b]) for b in ballast_values]
@@ -580,7 +583,7 @@ ncd_levels = np.zeros(N_POLS, dtype=int)  # everyone starts at level 0
 for year in range(N_HIST):
     year_claims = np.array([np.random.poisson(true_freq[i]) for i in range(N_POLS)])
     new_levels = np.zeros(N_POLS, dtype=int)
-    T_mat = scale.transition_matrix(claim_frequency=MEAN_FREQ).to_numpy()
+    T_mat = scale.transition_matrix(claim_frequency=MEAN_FREQ)  # returns numpy array
     for i in range(N_POLS):
         cl = year_claims[i]
         lv = ncd_levels[i]
@@ -613,7 +616,7 @@ holdout_freq = np.array([np.random.poisson(true_freq[i]) for i in range(N_POLS)]
 flat_rate = np.full(N_POLS, MEAN_FREQ)
 
 # --- Method 2: NCD-adjusted
-ncd_discount = np.array([float(scale_df["ncd_percent"][lv]) / 100 for lv in ncd_levels])
+ncd_discount = np.array([float(scale_df["ncd_percent"][int(lv)]) / 100 for lv in ncd_levels])
 ncd_rate = MEAN_FREQ * (1 - ncd_discount * 0.5)  # NCD discount partly reflects risk level
 
 # --- Method 3: EMF-adjusted
@@ -625,7 +628,7 @@ emf_df_bench = pl.DataFrame({
 params_bench = CredibilityParams(credibility_weight=0.65, ballast=10_000.0)
 emod_bench = ExperienceModFactor(params_bench)
 emf_result_bench = emod_bench.predict_batch(emf_df_bench, cap=2.0, floor=0.5)
-emf_vals = np.array(emf_result_bench["emf"].to_list())
+emf_vals = np.array(emf_result_bench["mod_factor"].to_list())
 emf_rate = MEAN_FREQ * emf_vals
 
 # --- Evaluation: MSE vs true frequency
@@ -640,7 +643,7 @@ def lorenz_gini(predicted, actual):
     cum_actual = np.cumsum(actual_sorted) / actual_sorted.sum()
     n = len(actual_sorted)
     cum_pop = np.arange(1, n + 1) / n
-    gini = 1 - 2 * np.trapz(cum_actual, cum_pop)
+    gini = 1 - 2 * _trapz(cum_actual, cum_pop)
     return gini
 
 gini_flat = lorenz_gini(flat_rate, holdout_freq)
@@ -695,9 +698,9 @@ plt.show()
 
 # Stationary distribution summary at 10% frequency
 sim_10 = BonusMalusSimulator(scale, claim_frequency=0.10)
-dist_10 = sim_10.stationary_distribution(method="analytical")
-epf_10 = sim_10.expected_premium_factor()
-pct_at_max_10 = dist_10[9] * 100
+dist_10 = sim_10.stationary_distribution(method="analytical")["stationary_prob"].to_numpy()
+epf_10 = float(sim_10.expected_premium_factor())
+pct_at_max_10 = float(dist_10[9]) * 100
 
 # Threshold at key NCD levels, representative premium £300/yr, 3yr horizon
 ct_ref = ClaimThreshold(scale, discount_rate=0.05)
