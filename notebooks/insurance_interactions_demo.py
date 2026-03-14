@@ -33,7 +33,11 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install insurance-interactions glum polars
+# MAGIC %pip install insurance-interactions[torch] glum polars
+
+# COMMAND ----------
+
+dbutils.library.restartPython()
 
 # COMMAND ----------
 
@@ -905,9 +909,6 @@ ax2 = axes[1]
 plot_rows = []
 for rank, row in nid_tbl_pd.iterrows():
     key = tuple(sorted([row["feature_1"], row["feature_2"]]))
-    exh_row = exhaustive_df[
-        (exhaustive_df["feature_1"].apply(lambda x: tuple(sorted([x, exhaustive_df.loc[exhaustive_df["feature_1"]==x].iloc[0]["feature_2"] if len(exhaustive_df[exhaustive_df["feature_1"]==x])>0 else ""]))) if False else True)
-    ]
     # Match from exhaustive_df
     match = exhaustive_df[
         ((exhaustive_df["feature_1"] == row["feature_1"]) & (exhaustive_df["feature_2"] == row["feature_2"])) |

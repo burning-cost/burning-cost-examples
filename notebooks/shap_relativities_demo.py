@@ -24,7 +24,11 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install "shap-relativities[all]" statsmodels
+# MAGIC %pip install "shap-relativities[all]>=0.2.1" statsmodels
+
+# COMMAND ----------
+
+dbutils.library.restartPython()
 
 # COMMAND ----------
 
@@ -115,7 +119,14 @@ CONTINUOUS_FEATURES = ["driver_age", "vehicle_age", "vehicle_group"]
 
 ALL_FEATURES = CATEGORICAL_FEATURES + CONTINUOUS_FEATURES
 
-X = df.select(ALL_FEATURES)
+# Cast integer categoricals to string: shap-relativities aggregates all categorical
+# feature levels into a single "level" column via pl.concat. If some features have
+# integer levels (e.g. ncd_years=0,1,2,...) and others have string levels (area="A"),
+# the concat fails with a SchemaError. Casting to string first keeps everything consistent.
+X = df.select(ALL_FEATURES).with_columns([
+    pl.col("ncd_years").cast(pl.Utf8),
+    pl.col("has_convictions").cast(pl.Utf8),
+])
 y = df["claim_count"].to_numpy()
 exposure = df["exposure"]
 
@@ -175,8 +186,8 @@ sr.fit()
 
 BASE_LEVELS = {
     "area": "A",
-    "ncd_years": 0,
-    "has_convictions": 0,
+    "ncd_years": "0",      # string, matching the cast above
+    "has_convictions": "0",  # string, matching the cast above
 }
 
 rels = sr.extract_relativities(
@@ -837,7 +848,7 @@ def gini_coefficient(y_actual: np.ndarray, y_pred: np.ndarray, exposure: np.ndar
     exp_cum = np.cumsum(exp_sorted) / np.sum(exp_sorted)
     act_cum = np.cumsum(act_sorted) / np.sum(act_sorted)
     # Area under Lorenz curve
-    auc = np.trapz(act_cum, exp_cum)
+    auc = np.trapezoid(act_cum, exp_cum) if hasattr(np, "trapezoid") else np.trapz(act_cum, exp_cum)
     return 2 * auc - 1
 
 gbm_dev = poisson_deviance(actual_test, gbm_preds_test, exposure_test)

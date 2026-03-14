@@ -25,7 +25,7 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install "insurance-demand[all]" catboost polars numpy matplotlib
+# MAGIC %pip install "insurance-demand[dml]>=0.1.5" "scipy<1.11" catboost polars matplotlib lifelines
 
 # COMMAND ----------
 
@@ -141,8 +141,8 @@ me_catboost = conv_catboost.marginal_effect(df_quotes)
 
 print("=== Naive marginal effects (biased elasticity estimates) ===")
 print()
-print(f"  Logistic:  dP/d(log_price_ratio) = {me_logistic['log_price_ratio']:.3f}")
-print(f"  CatBoost:  dP/d(log_price_ratio) = {me_catboost['log_price_ratio']:.3f}")
+print(f"  Logistic:  dP/d(price) mean = {float(me_logistic.mean()):.5f}")
+print(f"  CatBoost:  dP/d(price) mean = {float(me_catboost.mean()):.5f}")
 print()
 print(f"  True DGP elasticity: {TRUE_CONVERSION_ELASTICITY:.3f}")
 print()
@@ -157,13 +157,13 @@ print("=== Observed vs fitted conversion by channel ===\n")
 oneway_channel = conv_logistic.oneway(df_quotes, "channel")
 html_rows = ""
 for _, row in oneway_channel.iterrows():
-    bar_obs = int(row['obs_conversion_rate'] * 200)
-    bar_fit = int(row['fitted_conversion_rate'] * 200)
+    bar_obs = int(row['observed_rate'] * 200)
+    bar_fit = int(row['fitted_rate'] * 200)
     html_rows += f"""<tr>
-        <td>{row['channel']}</td>
-        <td>{row['n']:,}</td>
-        <td>{row['obs_conversion_rate']:.1%}</td>
-        <td>{row['fitted_conversion_rate']:.1%}</td>
+        <td>{row['factor_level']}</td>
+        <td>{row['n_quotes']:,}</td>
+        <td>{row['observed_rate']:.1%}</td>
+        <td>{row['fitted_rate']:.1%}</td>
         <td>{'|' * bar_obs}</td>
     </tr>"""
 

@@ -25,7 +25,7 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install insurance-optimise polars matplotlib
+# MAGIC %pip install "insurance-optimise>=0.3.2" polars matplotlib
 
 # COMMAND ----------
 
