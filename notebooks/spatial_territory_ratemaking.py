@@ -422,7 +422,7 @@ print(f"  Divergent transitions: {conv.n_divergences}")
 print(f"  Converged:          {conv.converged}")
 
 print("\n=== R-hat by parameter group ===")
-print(conv.rhat_by_param.to_pandas().to_string(index=False))
+print(conv.rhat_by_param)
 
 if conv.n_divergences > 0:
     print(f"\n  WARNING: {conv.n_divergences} divergent transitions. Consider:")
@@ -526,8 +526,7 @@ print(
         pl.col("b_sd").round(3),
         pl.col("ln_offset").round(3),
     ])
-    .to_pandas()
-    .to_string(index=False)
+    
 )
 
 print("\nTop 8 lowest-risk territories:")
@@ -542,8 +541,7 @@ print(
         pl.col("b_sd").round(3),
         pl.col("ln_offset").round(3),
     ])
-    .to_pandas()
-    .to_string(index=False)
+    
 )
 
 # COMMAND ----------
@@ -639,8 +637,7 @@ print(
     ci_width.head(5)
     .select(["area", "relativity", "lower", "upper", "ci_width"])
     .with_columns([pl.col(c).round(3) for c in ["relativity", "lower", "upper", "ci_width"]])
-    .to_pandas()
-    .to_string(index=False)
+    
 )
 print("\nThese are typically corner/edge areas with lower exposure and fewer")
 print("neighbours - the spatial prior does less borrowing for them.")
