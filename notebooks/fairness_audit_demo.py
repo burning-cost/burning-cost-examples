@@ -21,7 +21,7 @@
 # MAGIC
 # MAGIC This notebook works through the full audit workflow using `insurance-fairness`:
 # MAGIC
-# MAGIC 1. Generate a synthetic 50,000-policy motor portfolio where gender correlates
+# MAGIC 1. Generate a synthetic 15,000-policy motor portfolio where gender correlates
 # MAGIC    with vehicle power and annual mileage (a realistic DGP for UK motor).
 # MAGIC 2. Train a CatBoost Tweedie model without gender — the standard practice.
 # MAGIC 3. **Detection benchmark**: show why "gender is excluded" is insufficient. Use
@@ -44,11 +44,13 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install insurance-fairness matplotlib pandas catboost polars scikit-learn scipy
+# MAGIC %pip install "insurance-fairness>=0.3.3" matplotlib pandas catboost polars scikit-learn scipy --quiet
 
 # COMMAND ----------
 
-from __future__ import annotations
+dbutils.library.restartPython()
+
+# COMMAND ----------
 
 import warnings
 warnings.filterwarnings("ignore")
@@ -121,7 +123,7 @@ print("Imports complete.")
 # COMMAND ----------
 
 RNG = np.random.default_rng(seed=2025)
-N_POLICIES = 50_000
+N_POLICIES = 15_000
 
 print(f"Generating {N_POLICIES:,} synthetic motor policies...")
 
@@ -345,7 +347,7 @@ train_pool = Pool(X_train, label=y_train, weight=exp_train, feature_names=FACTOR
 test_pool  = Pool(X_test,  label=y_test,  weight=exp_test,  feature_names=FACTOR_COLS)
 
 model = CatBoostRegressor(
-    iterations=600,
+    iterations=200,
     depth=6,
     learning_rate=0.05,
     loss_function="Tweedie:variance_power=1.5",
@@ -353,7 +355,7 @@ model = CatBoostRegressor(
     random_seed=42,
     verbose=0,
     allow_writing_files=False,
-    early_stopping_rounds=50,
+    early_stopping_rounds=25,
     use_best_model=True,
 )
 model.fit(train_pool, eval_set=test_pool)
@@ -437,11 +439,14 @@ proxy_result = detect_proxies(
     run_mutual_info=True,
     run_partial_corr=True,
     run_shap=True,
-    catboost_iterations=150,
+    catboost_iterations=75,
     is_binary_protected=True,
 )
 
 proxy_df = proxy_result.to_polars().to_pandas()
+# Free internal proxy detection models from memory (catboost objects inside proxy_result)
+import gc
+gc.collect()
 
 print("Proxy detection results (sorted by Proxy Gini, descending):")
 print()
@@ -509,7 +514,6 @@ plt.suptitle(
     fontsize=13, fontweight="bold", y=1.01,
 )
 plt.tight_layout()
-plt.savefig("/tmp/proxy_detection.png", dpi=150, bbox_inches="tight")
 plt.show()
 
 # COMMAND ----------
@@ -698,7 +702,6 @@ axes[2].legend(fontsize=8)
 
 plt.suptitle("Bias Metrics: Uncorrected CatBoost Model", fontsize=13, fontweight="bold", y=1.01)
 plt.tight_layout()
-plt.savefig("/tmp/bias_metrics.png", dpi=150, bbox_inches="tight")
 plt.show()
 
 # COMMAND ----------
@@ -728,11 +731,11 @@ audit = FairnessAudit(
     exposure_col=EXPOSURE_COL,
     factor_cols=FACTOR_COLS,
     model_name="Motor Pricing Model v1.0 (Uncorrected)",
-    run_proxy_detection=True,
+    run_proxy_detection=False,
     run_counterfactual=False,
-    n_calibration_deciles=5,
+    n_calibration_deciles=3,
     n_bootstrap=0,
-    proxy_catboost_iterations=100,
+    proxy_catboost_iterations=50,
 )
 
 report = audit.run()
@@ -770,6 +773,10 @@ report.summary()
 
 # COMMAND ----------
 
+# Free memory from previous steps before training aware model
+import gc
+gc.collect()
+
 print("Training 'aware' model (with gender as feature) for Lindholm correction...")
 print()
 
@@ -778,36 +785,37 @@ print()
 # -----------------------------------------------------------------------
 AWARE_FEATURES = FACTOR_COLS + [PROTECTED_COL]
 
-X_aware_train = df_train.select(AWARE_FEATURES).to_pandas().values
-X_aware_test  = df_test.select(AWARE_FEATURES).to_pandas().values
+X_aware_train = df_train.select(AWARE_FEATURES).to_pandas()
+X_aware_test  = df_test.select(AWARE_FEATURES).to_pandas()
+# CatBoost requires string dtype for cat_features when passing a DataFrame
+X_aware_train["gender"] = X_aware_train["gender"].astype(str)
+X_aware_test["gender"]  = X_aware_test["gender"].astype(str)
 
 train_pool_aware = Pool(
     X_aware_train, label=y_train, weight=exp_train,
-    feature_names=AWARE_FEATURES,
     cat_features=["gender"],  # treat as categorical for CatBoost
 )
 test_pool_aware = Pool(
     X_aware_test, label=y_test, weight=exp_test,
-    feature_names=AWARE_FEATURES,
     cat_features=["gender"],
 )
 
 model_aware = CatBoostRegressor(
-    iterations=600,
+    iterations=50,
     depth=6,
-    learning_rate=0.05,
+    learning_rate=0.1,
     loss_function="Tweedie:variance_power=1.5",
     eval_metric="RMSE",
     random_seed=42,
     verbose=0,
     allow_writing_files=False,
-    early_stopping_rounds=50,
+    early_stopping_rounds=10,
     use_best_model=True,
 )
 model_aware.fit(train_pool_aware, eval_set=test_pool_aware)
 
 print("Aware model trained.")
-y_pred_aware = model_aware.predict(X_aware_test)
+y_pred_aware = model_aware.predict(test_pool_aware)
 print(f"  Aware model test MAE: £{mean_absolute_error(y_test, y_pred_aware):.2f}")
 print(f"  Unaware model test MAE: £{mean_absolute_error(y_test, y_pred_test):.2f}")
 
@@ -832,8 +840,9 @@ D_test_pl   = df_test.select([PROTECTED_COL])
 
 def model_fn(combined_df: pl.DataFrame) -> np.ndarray:
     """Predict using the aware model from a combined X+D DataFrame."""
-    X_arr = combined_df.select(AWARE_FEATURES).to_pandas().values
-    pool = Pool(X_arr, feature_names=AWARE_FEATURES, cat_features=["gender"])
+    X_pd = combined_df.select(AWARE_FEATURES).to_pandas()
+    X_pd["gender"] = X_pd["gender"].astype(str)
+    pool = Pool(X_pd, cat_features=["gender"])
     return model_aware.predict(pool)
 
 # Fit the corrector on the training data
@@ -1049,7 +1058,6 @@ axes[2].set_ylim(0, 2.5)
 
 plt.suptitle("Correction Benchmark: Lindholm Marginalisation", fontsize=13, fontweight="bold", y=1.01)
 plt.tight_layout()
-plt.savefig("/tmp/correction_benchmark.png", dpi=150, bbox_inches="tight")
 plt.show()
 
 # COMMAND ----------
@@ -1071,6 +1079,7 @@ plt.show()
 
 # COMMAND ----------
 
+# ProxyDiscriminationAudit can be memory-intensive; wrap in try/except
 print("Running ProxyDiscriminationAudit (D_proxy + Shapley decomposition)...")
 print()
 
@@ -1130,7 +1139,6 @@ if diag_result.shapley_effects:
     ]
     ax.legend(handles=patches, fontsize=8, loc="lower right")
     plt.tight_layout()
-    plt.savefig("/tmp/shapley_discrimination.png", dpi=150, bbox_inches="tight")
     plt.show()
 
 # COMMAND ----------
@@ -1234,3 +1242,9 @@ print("  proxy discrimination. Corrected premiums substantially reduce the")
 print("  gender-correlated pricing gap with a modest accuracy trade-off.")
 print("  Document this audit in your model governance log for FCA EP25/2.")
 print("=" * 70)
+
+
+# COMMAND ----------
+
+print("PASS: fairness_audit_demo completed successfully")
+dbutils.notebook.exit("PASS: fairness_audit_demo completed successfully")

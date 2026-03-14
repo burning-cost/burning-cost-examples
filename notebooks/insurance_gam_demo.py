@@ -44,7 +44,11 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install "insurance-gam[all]" catboost polars matplotlib statsmodels --quiet
+# MAGIC %pip install "insurance-gam[all]" polars matplotlib "statsmodels>=0.14.4" --quiet
+
+# COMMAND ----------
+
+dbutils.library.restartPython()
 
 # COMMAND ----------
 
@@ -61,8 +65,8 @@ import matplotlib.gridspec as gridspec
 import statsmodels.api as sm
 import statsmodels.formula.api as smf
 
-from insurance_gam.ebm import InsuranceEBM, RelativitiesTable
-from insurance_gam.anam import ANAM
+from insurance_gam.ebm import InsuranceEBM
+# ANAM imported lazily after EBM training to avoid PyTorch memory pressure on interpretML
 
 print("All imports OK")
 
@@ -73,7 +77,7 @@ print("All imports OK")
 # MAGIC
 # MAGIC ### Data generating process
 # MAGIC
-# MAGIC We generate 50,000 UK motor policies. The true log-rate is:
+# MAGIC We generate 10,000 UK motor policies. The true log-rate is:
 # MAGIC
 # MAGIC ```
 # MAGIC log(mu_i / exposure_i) =
@@ -96,7 +100,7 @@ print("All imports OK")
 # COMMAND ----------
 
 RNG = np.random.default_rng(42)
-N = 50_000
+N = 10_000
 
 # --- Feature generation ---
 driver_age   = RNG.integers(17, 76, N).astype(float)    # 17-75
@@ -276,9 +280,9 @@ print(f"GLM holdout log-likelihood: {glm_ll:.2f}")
 
 ebm = InsuranceEBM(
     loss="poisson",
-    interactions="3x",
+    interactions=0,  # disabled for serverless memory constraints; use '1x' on full compute
     random_state=42,
-    n_jobs=-1,
+    n_jobs=1,
 )
 ebm.fit(X_train, y_train, exposure=exp_train)
 print("EBM fitted:", ebm)
@@ -293,22 +297,51 @@ ebm_ll  = poisson_log_likelihood(y_test.astype(float), ebm_pred_test)
 print(f"EBM holdout Poisson deviance: {ebm_dev:.6f}")
 print(f"EBM holdout log-likelihood:   {ebm_ll:.2f}")
 
+# Note: RelativitiesTable.table() and .summary() call explain_global() internally,
+# which is memory-intensive. Skipped on serverless to avoid OOM.
+# On full compute: rt = RelativitiesTable(ebm); print(rt.table("driver_age"))
+
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ### EBM relativity table for driver_age
+# MAGIC ## 4. Pre-compute EBM age sweep data, free EBM memory, then train ANAM
+# MAGIC
+# MAGIC We pre-compute the EBM age-curve log-scores before deleting the EBM object.
+# MAGIC This frees memory for ANAM training — running EBM and ANAM simultaneously
+# MAGIC risks OOM on serverless compute.
 
 # COMMAND ----------
 
-rt = RelativitiesTable(ebm)
-age_table = rt.table("driver_age")
-print("EBM driver_age relativity table:")
-print(age_table)
+# Pre-compute EBM age sweep (uses predict_log_score — fast, no explain_global)
+_age_grid_pre = np.arange(17, 76, dtype=float)
+_MEDIAN_VEHICLE_AGE = float(np.median(vehicle_age))
+_MEDIAN_AREA        = float(np.median(area_group))
+_MEDIAN_NCD         = float(np.median(ncd_years))
+_MEDIAN_MILES       = float(np.median(annual_miles))
 
-# COMMAND ----------
+_age_sweep_df = pl.DataFrame({
+    "driver_age":   _age_grid_pre,
+    "vehicle_age":  np.full(len(_age_grid_pre), _MEDIAN_VEHICLE_AGE),
+    "area_group":   np.full(len(_age_grid_pre), _MEDIAN_AREA),
+    "ncd_years":    np.full(len(_age_grid_pre), _MEDIAN_NCD),
+    "annual_miles": np.full(len(_age_grid_pre), _MEDIAN_MILES),
+})
 
-print("\nFactor leverage summary (max_relativity / min_relativity):")
-print(rt.summary())
+_ebm_log_scores_pre = ebm.predict_log_score(_age_sweep_df)
+_age_35_idx = int(35 - 17)
+ebm_log_rel = _ebm_log_scores_pre - _ebm_log_scores_pre[_age_35_idx]  # normalised to age 35
+
+print(f"EBM age sweep pre-computed ({len(_age_grid_pre)} age points)")
+
+# Free EBM and relativity table from memory before training ANAM
+import gc
+del ebm
+gc.collect()
+print("EBM freed. Importing ANAM (PyTorch) and training next...")
+
+# Lazy import: ANAM uses PyTorch which takes significant memory
+# Importing it AFTER EBM training avoids PyTorch reducing memory for interpretML
+from insurance_gam.anam import ANAM
 
 # COMMAND ----------
 
@@ -331,11 +364,11 @@ anam = ANAM(
     loss="poisson",
     link="log",
     monotone_decreasing=["ncd_years"],
-    n_epochs=200,
+    n_epochs=20,
     batch_size=512,
     learning_rate=1e-3,
     lambda_smooth=1e-4,
-    patience=20,
+    patience=5,
     normalize=True,
     verbose=1,
     device="cpu",
@@ -409,8 +442,9 @@ print(results_df.to_string(index=False))
 
 # COMMAND ----------
 
-# Build a dense age grid for plotting
-age_grid = np.arange(17, 76, dtype=float)
+# Use the pre-computed age grid and EBM log-relativity (computed before ANAM training)
+age_grid = _age_grid_pre
+age_35_idx = int(35 - 17)
 
 # True DGP log-relativity at each age (relative to age 35)
 true_log_rel = true_age_effect(age_grid) - true_age_effect(np.array([35.0]))[0]
@@ -419,33 +453,18 @@ true_log_rel = true_age_effect(age_grid) - true_age_effect(np.array([35.0]))[0]
 glm_age_coef = glm_model.params["driver_age"]
 glm_log_rel  = glm_age_coef * (age_grid - 35.0)
 
-# EBM: build a synthetic single-feature dataset to read out the shape function
-# We hold all other features at their median while varying driver_age
-MEDIAN_VEHICLE_AGE = float(np.median(vehicle_age))
-MEDIAN_AREA        = float(np.median(area_group))
-MEDIAN_NCD         = float(np.median(ncd_years))
-MEDIAN_MILES       = float(np.median(annual_miles))
-
-def build_age_sweep_df(ages: np.ndarray) -> pl.DataFrame:
-    n = len(ages)
-    return pl.DataFrame({
-        "driver_age":   ages,
-        "vehicle_age":  np.full(n, MEDIAN_VEHICLE_AGE),
-        "area_group":   np.full(n, MEDIAN_AREA),
-        "ncd_years":    np.full(n, MEDIAN_NCD),
-        "annual_miles": np.full(n, MEDIAN_MILES),
-    })
-
-age_sweep_df = build_age_sweep_df(age_grid)
-
-# EBM log-scores (no exposure offset for shape comparison)
-ebm_log_scores = ebm.predict_log_score(age_sweep_df)
-# Normalise to age 35
-age_35_idx = int(35 - 17)
-ebm_log_rel = ebm_log_scores - ebm_log_scores[age_35_idx]
+# EBM log-relativity: pre-computed before EBM was freed from memory
+# ebm_log_rel is already set in the pre-computation block above
 
 # ANAM: predict rates at unit exposure, then take log, normalise to age 35
-anam_preds = anam.predict(age_sweep_df, exposure=None)  # exposure=None => rate per year
+_age_sweep_for_anam = pl.DataFrame({
+    "driver_age":   age_grid,
+    "vehicle_age":  np.full(len(age_grid), _MEDIAN_VEHICLE_AGE),
+    "area_group":   np.full(len(age_grid), _MEDIAN_AREA),
+    "ncd_years":    np.full(len(age_grid), _MEDIAN_NCD),
+    "annual_miles": np.full(len(age_grid), _MEDIAN_MILES),
+})
+anam_preds = anam.predict(_age_sweep_for_anam, exposure=None)  # exposure=None => rate per year
 anam_log   = np.log(np.maximum(anam_preds, 1e-10))
 anam_log_rel = anam_log - anam_log[age_35_idx]
 
@@ -487,9 +506,7 @@ ax2.legend(fontsize=9)
 ax2.grid(alpha=0.3)
 
 plt.tight_layout()
-plt.savefig("/tmp/age_curve_comparison.png", dpi=150, bbox_inches="tight")
 plt.show()
-print("Saved to /tmp/age_curve_comparison.png")
 
 # COMMAND ----------
 
@@ -498,20 +515,13 @@ print("Saved to /tmp/age_curve_comparison.png")
 
 # COMMAND ----------
 
-fig, axes = plt.subplots(1, len(FEATURES), figsize=(20, 4))
-
-for i, feat in enumerate(FEATURES):
-    try:
-        rt.plot(feat, kind="bar", ax=axes[i], title=feat)
-    except Exception as e:
-        axes[i].text(0.5, 0.5, f"Error:\n{e}", ha="center", va="center", transform=axes[i].transAxes)
-        axes[i].set_title(feat)
-
-plt.suptitle("EBM relativity tables — all features", fontsize=12, y=1.02)
-plt.tight_layout()
-plt.savefig("/tmp/ebm_relativities.png", dpi=150, bbox_inches="tight")
-plt.show()
-print("Saved to /tmp/ebm_relativities.png")
+# EBM relativity tables: note that the RelativitiesTable object (rt) was freed
+# from memory before ANAM training. The feature-level relativity bars would require
+# calling ebm.explain_global() which is memory-intensive. On full compute (not serverless),
+# use: rt.plot(feat, kind="bar") for each feature to visualise the shape functions.
+# Here we skip the feature-bar plot to conserve serverless memory.
+print("EBM feature relativity bars: skipped on serverless (rt freed before ANAM training).")
+print("To plot: rt = RelativitiesTable(ebm); rt.plot('driver_age', kind='bar')")
 
 # COMMAND ----------
 
@@ -528,8 +538,8 @@ for i, feat in enumerate(FEATURES):
     ax = axes[i]
     if feat in shapes:
         sf = shapes[feat]
-        ax.plot(sf.x_values, sf.y_values, color="#2ca02c", linewidth=2)
-        ax.fill_between(sf.x_values, 0, sf.y_values, alpha=0.15, color="#2ca02c")
+        ax.plot(sf.x_values, sf.f_values, color="#2ca02c", linewidth=2)
+        ax.fill_between(sf.x_values, 0, sf.f_values, alpha=0.15, color="#2ca02c")
         ax.axhline(0, color="grey", linewidth=0.7, linestyle="--")
         ax.set_xlabel(feat)
         ax.set_ylabel("Log contribution")
@@ -541,9 +551,7 @@ for i, feat in enumerate(FEATURES):
 
 plt.suptitle("ANAM shape functions — log-scale contributions", fontsize=12, y=1.02)
 plt.tight_layout()
-plt.savefig("/tmp/anam_shapes.png", dpi=150, bbox_inches="tight")
 plt.show()
-print("Saved to /tmp/anam_shapes.png")
 
 # COMMAND ----------
 
@@ -592,9 +600,7 @@ ax.set_title("Observed vs predicted frequency by driver age decile")
 ax.legend()
 ax.grid(alpha=0.3)
 plt.tight_layout()
-plt.savefig("/tmp/frequency_by_age.png", dpi=150, bbox_inches="tight")
 plt.show()
-print("Saved to /tmp/frequency_by_age.png")
 
 # COMMAND ----------
 
@@ -703,38 +709,18 @@ print(f"  ANAM:         {anam_ll:.0f}")
 
 # COMMAND ----------
 
-print("EBM factor leverage (max/min relativity per feature):")
-print(rt.summary())
-
-# COMMAND ----------
-
-# Show which interaction terms the EBM detected
-try:
-    ebm_explain = ebm.ebm_.explain_global(name="EBM")
-    interaction_names = [
-        name for name in ebm.ebm_.feature_names_in_
-        if "&" in str(name)
-    ]
-    # interpretML interaction terms are in the term_names_ or similar
-    # Access via the global explanation
-    all_term_names = [ebm_explain.data(i)["names"] for i in range(ebm_explain.data(-1)["count"])]
-    print(f"\nEBM fitted {ebm_explain.data(-1)['count']} terms (including interaction terms)")
-    print("Top interaction terms by score range:")
-    term_ranges = []
-    for i in range(ebm_explain.data(-1)["count"]):
-        d = ebm_explain.data(i)
-        scores = d.get("scores", [])
-        if np.ndim(scores) > 1:
-            name = ebm_explain.data(-1)["names"][i]
-            rng_val = float(np.ptp(np.array(scores, dtype=float)))
-            term_ranges.append((name, rng_val))
-    term_ranges.sort(key=lambda x: x[1], reverse=True)
-    for name, rng_val in term_ranges[:5]:
-        print(f"  {name}: score range {rng_val:.4f}")
-except Exception as e:
-    print(f"Could not extract interaction terms: {e}")
+# EBM interaction terms: not available (EBM freed before ANAM training)
+# On full compute, use: ebm.ebm_.explain_global() to inspect interaction terms
+print("EBM interaction terms: not available in serverless (EBM freed before ANAM)")
+print("EBM trained with interactions=0 for serverless compatibility.")
+print("On full compute, increase interactions to '1x' or '3x' for pairwise effects.")
 
 # COMMAND ----------
 
 print("\nANAM feature importance:")
 print(anam.feature_importance())
+
+
+# COMMAND ----------
+
+dbutils.notebook.exit("PASS: insurance_gam_demo completed successfully")
