@@ -665,9 +665,19 @@ print(evidence_md)
 evidence_dict = pack.to_dict()
 print("\nEvidence pack JSON metadata:")
 import json as _json
-print(_json.dumps(evidence_dict["metadata"], indent=2))
+class _NpEncoder(_json.JSONEncoder):
+    """JSON encoder that handles numpy scalar types."""
+    def default(self, obj):
+        import numpy as _n
+        if isinstance(obj, _n.integer): return int(obj)
+        if isinstance(obj, _n.floating): return float(obj)
+        if isinstance(obj, _n.bool_): return bool(obj)
+        if isinstance(obj, _n.ndarray): return obj.tolist()
+        return super().default(obj)
+
+print(_json.dumps(evidence_dict["metadata"], indent=2, cls=_NpEncoder))
 print("\nEstimation summary:")
-print(_json.dumps(evidence_dict["estimation"], indent=2))
+print(_json.dumps(evidence_dict["estimation"], indent=2, cls=_NpEncoder))
 
 # Save the Markdown
 try:

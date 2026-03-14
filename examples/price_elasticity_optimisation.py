@@ -45,6 +45,22 @@ and catboost_iterations to 100 for a quick smoke test.
 
 from __future__ import annotations
 
+import sys
+
+# econml is required for CausalForestDML. It has complex C extensions
+# that cannot be installed in all environments (e.g. Databricks serverless
+# compute via environment spec). If econml is not available, exit cleanly
+# with a clear message rather than crashing with an ImportError mid-script.
+try:
+    import econml  # noqa: F401
+except ImportError:
+    print(
+        "SKIP: econml is not installed. This script requires econml for "
+        "CausalForestDML. Install with: pip install econml\n"
+        "On Databricks serverless, use a standard cluster with econml pre-installed."
+    )
+    sys.exit(0)
+
 import warnings
 import numpy as np
 import polars as pl

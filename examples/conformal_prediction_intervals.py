@@ -307,10 +307,7 @@ if CATBOOST_AVAILABLE:
         random_seed=42,
         verbose=0,
     )
-    model.fit(
-        X_train, y_train,
-        feature_names=FEATURE_NAMES,
-    )
+    model.fit(X_train, y_train)
     print(f"CatBoost fitted: {model.tree_count_} trees")
     print(f"  loss_function = Tweedie:variance_power=1.5")
     print(f"  depth = 6, iterations = 400, lr = 0.05")
@@ -681,8 +678,8 @@ pred_90 = intervals_90["point"].to_numpy()
 widths_90 = (intervals_90["upper"] - intervals_90["lower"]).to_numpy()
 
 # Find a low-risk and high-risk policy to compare
-low_risk_idx  = np.argmin(pred_90)
-high_risk_idx = np.argmax(pred_90)
+low_risk_idx  = int(np.argmin(pred_90))
+high_risk_idx = int(np.argmax(pred_90))
 
 lo_w = float(intervals_90["lower"][low_risk_idx])
 lo_p = float(intervals_90["point"][low_risk_idx])

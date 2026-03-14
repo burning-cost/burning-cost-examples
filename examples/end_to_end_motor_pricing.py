@@ -245,8 +245,8 @@ model_v1.fit(train_pool)
 # Quick lift check: RMSE on holdout
 from catboost import metrics as cb_metrics
 
-v2_preds = model_v2.predict(holdout_pd[feature_cols], ntree_end=500)
-v1_preds = model_v1.predict(holdout_pd[feature_cols], ntree_end=200)
+v2_preds = model_v2.predict(holdout_pd[feature_cols])
+v1_preds = model_v1.predict(holdout_pd[feature_cols])
 actuals = holdout_pd["claim_count"].values
 
 v2_rmse = float(np.sqrt(np.mean((v2_preds - actuals) ** 2)))
