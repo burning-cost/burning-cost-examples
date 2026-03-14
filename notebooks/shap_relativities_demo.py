@@ -24,7 +24,7 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install "shap-relativities>=0.2.1" shap statsmodels
+# MAGIC %pip install "shap-relativities>=0.2.1" statsmodels
 
 # COMMAND ----------
 
