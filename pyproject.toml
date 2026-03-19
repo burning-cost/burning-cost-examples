@@ -13,6 +13,7 @@ requires-python = ">=3.10"
 dependencies = [
     # Published on PyPI
     "insurance-deploy>=0.1.1",
+    "insurance-governance>=0.1.0",
     "catboost>=1.2",
     "shap>=0.45",
     "numpy>=1.24",
@@ -23,8 +24,6 @@ dependencies = [
     # Until then, install from source — see README.md.
     "insurance-synthetic>=0.1.0",
     "shap-relativities>=0.2.0",
-    # insurance-validation is forthcoming; the example runs without it.
-    # Install manually once released: uv add insurance-validation
 ]
 
 [tool.hatch.build.targets.wheel]

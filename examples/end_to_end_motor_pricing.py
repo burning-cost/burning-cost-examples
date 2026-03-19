@@ -4,11 +4,11 @@ End-to-end UK motor pricing workflow.
 This script walks through a complete pricing model development and deployment
 pipeline using the Burning Cost open-source library stack:
 
-    insurance-synthetic  — generate a realistic synthetic UK motor portfolio
-    catboost             — train a Poisson GBM frequency model
-    shap-relativities   — extract multiplicative rating factor relativities
-    insurance-validation — PRA-compliant model validation report (if installed)
-    insurance-deploy     — register models and run champion/challenger in shadow mode
+    insurance-synthetic   — generate a realistic synthetic UK motor portfolio
+    catboost              — train a Poisson GBM frequency model
+    shap-relativities     — extract multiplicative rating factor relativities
+    insurance-governance  — PRA SS1/23-compliant model validation report
+    insurance-deploy      — register models and run champion/challenger in shadow mode
 
 The data generated here is entirely synthetic. In production you would replace
 step 1 with your actual policy and claims extract. Everything from step 2 onwards
@@ -19,7 +19,7 @@ follow what is happening without needing a notebook environment.
 
 Dependencies
 ------------
-    uv add insurance-synthetic shap-relativities insurance-deploy catboost shap scipy
+    uv add insurance-synthetic shap-relativities insurance-deploy insurance-governance catboost shap scipy
 
 Approximate runtime: 2–5 minutes, depending on the machine. The vine copula
 fitting (step 1) and SHAP computation (step 3) dominate.
@@ -348,45 +348,110 @@ for check_name, result in checks.items():
 # Section 4: Model validation report
 # ---------------------------------------------------------------------------
 #
-# insurance-validation is a planned library in the Burning Cost stack that will
-# produce PRA SS1/23-compliant model validation documentation. It is not yet
-# published. This section shows where it will fit and runs a manual validation
-# in the meantime.
+# insurance-governance provides PRA SS1/23-compliant model validation via its
+# validation subpackage (insurance_governance.validation). This was previously
+# the standalone insurance-validation package, which has been archived and
+# merged into insurance-governance.
 #
-# The manual checks below are the minimum a UK insurer should document for any
-# frequency model submitted to actuarial function review:
+# Install: uv add insurance-governance
 #
-#   - Lift: RMSE on holdout vs. baseline (claim mean rate)
-#   - Calibration: ratio of predicted to observed claim frequency
-#   - Gini coefficient on holdout (concentration of predictive power)
-#
-# When insurance-validation is released, replace the manual block with:
-#
-#   from insurance_validation import ValidationReport
-#   report = ValidationReport(model_v2, holdout_df, target="claim_count",
-#                             exposure="exposure", features=feature_cols)
-#   report.run_all()
-#   print(report.to_markdown())
+# ModelCard captures what the model is and who owns it. ModelValidationReport
+# runs all the standard tests (Gini with CI, A/E ratio, Hosmer-Lemeshow,
+# lift chart) and writes an HTML report suitable for actuarial function review.
+# PerformanceReport gives direct access to individual metrics.
 # ---------------------------------------------------------------------------
 
 print("\n" + "=" * 70)
-print("Step 4: Model validation")
+print("Step 4: Model validation (insurance-governance)")
 print("=" * 70)
 
-# Attempt to import insurance-validation if available
-_validation_available = False
 try:
-    import insurance_validation  # noqa: F401
-    _validation_available = True
-    print("insurance-validation detected — using full validation suite")
+    from insurance_governance.validation import (
+        ModelCard,
+        ModelValidationReport,
+        PerformanceReport,
+    )
+    _governance_available = True
 except ImportError:
+    _governance_available = False
     print(
-        "insurance-validation not installed (not yet released). "
-        "Running manual validation checks.\n"
-        "Install when available: uv add insurance-validation"
+        "insurance-governance not installed. Install with: uv add insurance-governance\n"
+        "Running manual validation checks in the meantime.\n"
     )
 
-if not _validation_available:
+if _governance_available:
+    _tmpdir_val = tempfile.mkdtemp(prefix="bc_examples_val_")
+    html_path = Path(_tmpdir_val) / "validation_report.html"
+    json_path = Path(_tmpdir_val) / "validation_report.json"
+
+    card = ModelCard(
+        name="Motor Frequency Challenger v2",
+        version="2.0.0",
+        purpose=(
+            "Predict claim frequency for UK private motor portfolio. "
+            "Output is used as the frequency component of the pure premium."
+        ),
+        methodology=(
+            "CatBoost gradient boosting with Poisson objective and log(exposure) offset. "
+            "500 trees, depth 4, L2 regularisation 3.0."
+        ),
+        target="claim_count",
+        features=feature_cols,
+        limitations=[
+            "No telematics data — mileage is self-declared annual_mileage only",
+            "No claims history beyond NCD years (no prior frequency data)",
+            "Trained on synthetic data — must be retrained on actual portfolio before deployment",
+            "Area bands are coarser than postcode-district level",
+        ],
+        owner="Pricing Team",
+    )
+
+    train_pd_copy = train_pd.copy()
+    train_pd_copy["predicted_rate"] = model_v2.predict(train_pd_copy[feature_cols])
+    train_preds_val = train_pd_copy["predicted_rate"].values
+    train_actuals_val = train_pd_copy["claim_count"].values
+
+    print("Running validation tests...")
+    report = ModelValidationReport(
+        model_card=card,
+        y_val=actuals,
+        y_pred_val=v2_preds,
+        exposure_val=holdout_pd["exposure"].values,
+        y_train=train_actuals_val,
+        y_pred_train=train_preds_val,
+    )
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        report.generate(str(html_path))
+        report.to_json(str(json_path))
+
+    print(f"HTML validation report: {html_path}")
+    print(f"JSON validation report: {json_path}")
+
+    perf = PerformanceReport(actuals, v2_preds, exposure=holdout_pd["exposure"].values)
+
+    gini_result = perf.gini_with_ci()
+    ae_result = perf.ae_with_poisson_ci()
+    hl_result = perf.hosmer_lemeshow_test()
+
+    gini_val = gini_result.metric_value
+    gini_ci_lo = gini_result.extra.get("ci_lower")
+    gini_ci_hi = gini_result.extra.get("ci_upper")
+
+    ae_val = ae_result.metric_value
+    ae_ci_lo = ae_result.extra.get("ci_lower")
+    ae_ci_hi = ae_result.extra.get("ci_upper")
+
+    hl_stat = hl_result.extra.get("hl_statistic")
+    hl_pval = hl_result.extra.get("p_value")
+
+    print(f"\nKey validation metrics (holdout set, n={len(holdout_pd):,} policies):")
+    print(f"  Gini coefficient:  {gini_val:.4f}  (95% CI: [{gini_ci_lo:.4f}, {gini_ci_hi:.4f}])")
+    print(f"  A/E ratio:         {ae_val:.4f}  (95% CI: [{ae_ci_lo:.4f}, {ae_ci_hi:.4f}])")
+    print(f"  Hosmer-Lemeshow:   chi2 = {hl_stat:.2f}, p = {hl_pval:.4f}  ({'PASS' if hl_result.passed else 'REVIEW'})")
+
+else:
     # -- Calibration --
     # The ratio of total predicted claims to total observed claims should be
     # close to 1.0. Material deviation here means the model is systematically
@@ -444,9 +509,8 @@ if not _validation_available:
     print(f"  RMSE lift vs naive: {lift_vs_naive:.1%}")
     print(f"  Gini coefficient: {gini:.3f}")
     print(
-        "\n  Note: a full PRA SS1/23-compliant validation would also include "
-        "out-of-time tests, stress tests, and sensitivity analysis. "
-        "This is covered by the insurance-validation library when released."
+        "\n  Install insurance-governance for the full PRA SS1/23 validation suite: "
+        "uv add insurance-governance"
     )
 
 
@@ -773,10 +837,11 @@ print("End-to-end workflow complete")
 print("=" * 70)
 print(f"""
 Libraries used:
-  insurance-synthetic  — synthetic UK motor portfolio (20,000 policies)
-  catboost             — Poisson GBM frequency model (champion v1, challenger v2)
-  shap-relativities   — multiplicative rating factor relativities
-  insurance-deploy     — model registry, shadow experiment, ENBP audit
+  insurance-synthetic   — synthetic UK motor portfolio (20,000 policies)
+  catboost              — Poisson GBM frequency model (champion v1, challenger v2)
+  shap-relativities     — multiplicative rating factor relativities
+  insurance-governance  — PRA SS1/23 model validation (ModelCard, ModelValidationReport)
+  insurance-deploy      — model registry, shadow experiment, ENBP audit
 
 Outputs produced:
   Model relativities for {len(feature_cols)} rating factors
@@ -792,6 +857,6 @@ Next steps in a real deployment:
   5. Present ModelComparison results to actuarial function for promotion decision
   6. Call registry.set_champion("motor_frequency", "2.0") once approved
 
-For PRA SS1/23 documentation, see the insurance-validation library (forthcoming).
+For PRA SS1/23 documentation, see insurance-governance: uv add insurance-governance
 For blog posts on methodology: https://burning-cost.github.io
 """)

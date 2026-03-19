@@ -13,7 +13,7 @@ require documented evidence of compliance:
   performance tests.
 
 This script runs a pricing model through both frameworks using the
-insurance-fairness and insurance-validation libraries. The output is a
+insurance-fairness and insurance-governance libraries. The output is a
 structured audit record — the kind of thing you attach to a pricing committee
 paper or model validation submission.
 
@@ -21,18 +21,18 @@ The workflow is:
 
     1. Load synthetic motor data and train a quick CatBoost model
     2. Proxy discrimination audit (insurance-fairness)
-    3. PRA SS1/23 model validation report (insurance-validation)
+    3. PRA SS1/23 model validation report (insurance-governance)
     4. Interpret results and identify any action items
 
 Libraries used
 --------------
     insurance-datasets    — synthetic UK motor data
     insurance-fairness    — FCA Consumer Duty proxy discrimination audit
-    insurance-validation  — PRA SS1/23 model validation report
+    insurance-governance  — PRA SS1/23 model validation report
 
 Dependencies
 ------------
-    uv add insurance-datasets insurance-fairness insurance-validation catboost shap
+    uv add insurance-datasets insurance-fairness insurance-governance catboost shap
 
 Approximate runtime: 3–5 minutes. The proxy detection step (which fits small
 CatBoost models to test each rating factor as a proxy) takes the most time.
@@ -254,16 +254,20 @@ print(f"  Rating factors tested: {len(audit_dict['factor_cols'])}")
 #   - Discrimination metrics (Gini with confidence interval)
 #   - Hosmer-Lemeshow calibration test
 #
-# insurance-validation generates an HTML report covering these requirements.
-# The ModelCard captures the model metadata that goes in section 1 of the
+# insurance-governance provides this via its validation subpackage. The
+# ModelCard captures the model metadata that goes in section 1 of the
 # validation document. The ModelValidationReport runs all the tests.
+#
+# Previously this was the standalone insurance-validation package. That
+# package has been archived and merged into insurance-governance.
+# Install: uv add insurance-governance
 # ---------------------------------------------------------------------------
 
 print("\n" + "=" * 70)
 print("Step 3: PRA SS1/23 model validation report")
 print("=" * 70)
 
-from insurance_validation import ModelCard, ModelValidationReport, PerformanceReport
+from insurance_governance.validation import ModelCard, ModelValidationReport, PerformanceReport
 
 # ModelCard: the metadata that goes in the validation document header
 card = ModelCard(
