@@ -410,7 +410,7 @@ plt.close()
 # MAGIC
 # MAGIC The **breakdown point M*** is the smallest M at which zero enters the identified set — i.e. where you can no longer rule out that the true effect is zero. A large M* means the result is robust.
 # MAGIC
-# MAGIC **Regulatory context:** FCA EP25/2 does not require HonestDiD specifically, but it does require evidence that conclusions are robust to reasonable model perturbations. Showing M* > 1 is a credible way to demonstrate this.
+# MAGIC **Regulatory context:** The FCA's approach in EP25/2 used DiD methodology and required evidence that conclusions are robust to reasonable model perturbations. Showing M* > 1 is a credible way to demonstrate this robustness under Consumer Duty outcome monitoring.
 
 # COMMAND ----------
 
@@ -593,8 +593,8 @@ WHAT WOULD INVALIDATE THIS
      not loss ratio.
 
 RECOMMENDATION
-  This analysis provides FCA-standard causal evidence (class of method
-  used in FCA EP25/2). Include in the Q4 2023 Consumer Duty outcome
+  This analysis provides FCA-standard causal evidence (same family of DiD
+  methods the FCA used in EP25/2). Include in the Q4 2023 Consumer Duty outcome
   monitoring pack. Flag the regional scope — the effect is estimated for
   north-west, north-east, and yorkshire only.
 """

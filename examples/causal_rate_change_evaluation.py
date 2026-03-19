@@ -546,9 +546,9 @@ except Exception as e:
 # identified set — i.e. where you can no longer rule out that the true
 # effect is zero. A large M* means the result is robust.
 #
-# Regulatory context: FCA EP25/2 does not require HonestDiD specifically,
-# but it does require evidence that conclusions are robust to reasonable
-# model perturbations. Showing M* > 1 is a credible way to demonstrate this.
+# Regulatory context: The FCA's approach in EP25/2 used DiD methodology
+# and emphasised robustness of conclusions to model perturbations. Showing
+# M* > 1 is a credible way to demonstrate this under Consumer Duty outcome monitoring.
 # ---------------------------------------------------------------------------
 
 print("\n" + "=" * 72)
@@ -769,7 +769,7 @@ WHAT WOULD INVALIDATE THIS
 
 RECOMMENDATION
   This analysis provides FCA-standard causal evidence (class of method
-  used in FCA EP25/2). Include in the Q4 2023 Consumer Duty outcome
+  same family of DiD methods the FCA used in EP25/2). Include in the Q4 2023 Consumer Duty outcome
   monitoring pack. Flag the regional scope — the effect is estimated for
   north-west, north-east, and yorkshire only; inference for other regions
   requires separate analysis.

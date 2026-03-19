@@ -7,7 +7,7 @@
 # MAGIC There is a persistent confusion in UK pricing teams about what a fairness
 # MAGIC audit actually requires. The naive position is: "we don't use gender as a
 # MAGIC rating factor, so we can't be discriminating on gender." The FCA's position
-# MAGIC in EP25/2 is more demanding than that. Exclusion of a protected attribute
+# MAGIC under Consumer Duty (PS22/9, PRIN 2A) and FCA TR24/2 is more demanding than that. Exclusion of a protected attribute
 # MAGIC from the model is necessary but not sufficient.
 # MAGIC
 # MAGIC The mechanism the regulator is concerned about is **proxy discrimination**:
@@ -32,7 +32,7 @@
 # MAGIC 5. **Correction benchmark**: apply Lindholm (2022) marginalisation via
 # MAGIC    `optimal_transport` to produce discrimination-free premiums. Show the
 # MAGIC    accuracy-fairness trade-off.
-# MAGIC 6. **FCA EP25/2 context**: what the regulator actually expects from a pricing
+# MAGIC 6. **Regulatory context**: what the FCA actually expects from a pricing
 # MAGIC    model governance framework.
 # MAGIC
 # MAGIC ---
@@ -391,15 +391,16 @@ print(f"  (Non-zero despite gender exclusion = proxy discrimination present)")
 # MAGIC
 # MAGIC The naive fairness check is a code review: "gender is not in the feature
 # MAGIC list, so we are compliant." This is documented by most firms as their primary
-# MAGIC fairness control. The FCA's EP25/2 and TR24/2 reviews found that most firms
+# MAGIC fairness control. The FCA Multi-Firm Review (TR24/2, 2024) found that most firms
 # MAGIC rely on this check exclusively.
 # MAGIC
 # MAGIC ### What the FCA Now Expects
 # MAGIC
-# MAGIC EP25/2 (2025) asks firms to demonstrate that protected characteristics do not
-# MAGIC have material influence on pricing outcomes, accounting for correlations
-# MAGIC between protected attributes and rating factors. The required evidence is
-# MAGIC quantitative, not a code review.
+# MAGIC Consumer Duty (PRIN 2A) requires firms to demonstrate that pricing does not
+# MAGIC result in systematically worse outcomes for customers sharing protected
+# MAGIC characteristics. The FCA Multi-Firm Review (2024) found that most firms had
+# MAGIC limited, often inadequate, monitoring of differential outcomes by demographic
+# MAGIC group. The required evidence is quantitative, not a code review.
 # MAGIC
 # MAGIC ### insurance-fairness: Proxy Detection
 # MAGIC
@@ -1144,13 +1145,15 @@ if diag_result.shapley_effects:
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Step 10: FCA EP25/2 Context — What the Regulator Expects
+# MAGIC ## Step 10: Regulatory Context — What the FCA Expects
 # MAGIC
-# MAGIC FCA Evaluation Paper EP25/2 (2025) is the FCA's most detailed published
-# MAGIC statement on how it evaluates algorithmic pricing for discrimination risk.
-# MAGIC The key requirements for a pricing governance framework:
+# MAGIC The key regulatory obligations for a pricing model governance framework
+# MAGIC come from Consumer Duty (PS22/9, PRIN 2A), the Equality Act 2010 (s.19),
+# MAGIC and FCA guidance (FG22/5, TR24/2). Note: FCA EP25/2 (July 2025) evaluates
+# MAGIC whether GIPP price-walking remedies worked — it is backward-looking and
+# MAGIC imposes no direct obligations on firms regarding proxy discrimination.
 # MAGIC
-# MAGIC ### What EP25/2 Requires
+# MAGIC ### What Consumer Duty and the Equality Act Require
 # MAGIC
 # MAGIC | Requirement | Naive Approach | insurance-fairness Approach |
 # MAGIC |---|---|---|
@@ -1240,7 +1243,7 @@ print("CONCLUSION:")
 print("  The naive check passes where insurance-fairness identifies material")
 print("  proxy discrimination. Corrected premiums substantially reduce the")
 print("  gender-correlated pricing gap with a modest accuracy trade-off.")
-print("  Document this audit in your model governance log for FCA EP25/2.")
+print("  Document this audit in your model governance log for Consumer Duty (PRIN 2A.4.6).")
 print("=" * 70)
 
 
