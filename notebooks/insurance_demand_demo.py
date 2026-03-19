@@ -19,7 +19,7 @@
 # MAGIC 3. Show how naive logistic regression produces a biased elasticity estimate
 # MAGIC 4. Fit a **RetentionModel** on the renewal portfolio
 # MAGIC 5. Use `ElasticityEstimator` (DML) to estimate the **true causal price elasticity** from observational data
-# MAGIC 6. Run the **GIPP-constrained optimiser** to find optimal prices subject to FCA PS21/11 constraints
+# MAGIC 6. Run the **GIPP-constrained optimiser** to find optimal prices subject to FCA PS21/5 constraints
 # MAGIC 7. **Benchmark**: naive OLS vs DML vs DGP truth; efficient frontier plot
 # MAGIC 8. Run the **ENBP compliance checker** and price-walking diagnostic
 
@@ -189,7 +189,7 @@ displayHTML(f"""
 # MAGIC
 # MAGIC We use the logistic backend here. For CLV modelling across multiple future renewals, the Cox or Weibull survival backends are more appropriate (they give you the full survival curve, not just next-anniversary probability).
 # MAGIC
-# MAGIC Post PS21/11: this model tells you who is lapse-sensitive. You may use this to **offer a retention discount** to high-lapse-risk customers. You may not use it to charge a premium surcharge to customers with low predicted lapse (that was the "loyalty penalty" the FCA banned).
+# MAGIC Post PS21/5: this model tells you who is lapse-sensitive. You may use this to **offer a retention discount** to high-lapse-risk customers. You may not use it to charge a premium surcharge to customers with low predicted lapse (that was the "loyalty penalty" the FCA banned).
 
 # COMMAND ----------
 
@@ -453,13 +453,13 @@ print(f"At £{base_price * 1.10:.0f} (+10%): truth {float(curve_truth.evaluate((
 # MAGIC ## Step 7: GIPP-Constrained Price Optimisation
 # MAGIC
 # MAGIC The `OptimalPrice` class finds the profit-maximising price for a segment subject to:
-# MAGIC - A hard ENBP ceiling (PS21/11 / GIPP)
+# MAGIC - A hard ENBP ceiling (PS21/5 / GIPP)
 # MAGIC - An optional volume floor (minimum conversion rate)
 # MAGIC - An optional margin floor (minimum profit margin)
 # MAGIC
 # MAGIC The objective is `E[profit | price] = P(buy | price) × (price − expected_loss − expenses)`.
 # MAGIC
-# MAGIC We optimise across four segments of the portfolio, using the DML-calibrated demand curve. The ENBP constraint is set at the 75th percentile of `nb_equivalent_price` in each segment — a conservative (clean) ceiling consistent with PS21/11 compliance.
+# MAGIC We optimise across four segments of the portfolio, using the DML-calibrated demand curve. The ENBP constraint is set at the 75th percentile of `nb_equivalent_price` in each segment — a conservative (clean) ceiling consistent with PS21/5 compliance.
 # MAGIC
 # MAGIC **Note on renewals vs new business**: ENBP is a renewal constraint. For new business (this dataset), there is no statutory ceiling, but we demonstrate the mechanic using a proxy ENBP to show how the constraint affects the optimum.
 
@@ -492,7 +492,7 @@ for seg in opt_segments:
         continue
 
     tech_prem = float(seg_df["technical_premium"].mean())
-    # Proxy ENBP at 75th percentile of prices (simulates PS21/11 ceiling)
+    # Proxy ENBP at 75th percentile of prices (simulates PS21/5 ceiling)
     enbp = float(np.percentile(seg_df["quoted_price"].to_numpy(), 75))
     # Per-customer base conversion rate at mean price
     base_p = float(seg_df["converted"].mean())
@@ -762,13 +762,13 @@ print("margin on the table.")
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Step 9: ENBP Compliance Audit (PS21/11 / GIPP)
+# MAGIC ## Step 9: ENBP Compliance Audit (PS21/5 / GIPP)
 # MAGIC
-# MAGIC The `ENBPChecker` audits a renewal portfolio for PS21/11 compliance: every renewal price must be at or below the Equivalent New Business Price (ENBP) for the same risk through the same channel.
+# MAGIC The `ENBPChecker` audits a renewal portfolio for PS21/5 compliance: every renewal price must be at or below the Equivalent New Business Price (ENBP) for the same risk through the same channel.
 # MAGIC
 # MAGIC This synthetic dataset was generated with renewals capped at ENBP, so the breach rate should be near zero. In practice, data quality issues, NB pricing methodology changes, and system errors can introduce breaches. The checker gives you the audit trail.
 # MAGIC
-# MAGIC The `price_walking_report` detects systematic price-vs-tenure patterns — the diagnostic the FCA uses in multi-firm reviews. A rising price-to-ENBP ratio with tenure is a PS21/11 concern.
+# MAGIC The `price_walking_report` detects systematic price-vs-tenure patterns — the diagnostic the FCA uses in multi-firm reviews. A rising price-to-ENBP ratio with tenure is a PS21/5 concern.
 
 # COMMAND ----------
 
@@ -803,7 +803,7 @@ walking = price_walking_report(
 )
 
 print("=== Price Walking Diagnostic (tenure vs renewal price) ===")
-print("A rising price-to-ENBP ratio with tenure would indicate PS21/11 concern.\n")
+print("A rising price-to-ENBP ratio with tenure would indicate PS21/5 concern.\n")
 display(walking.head(30))
 
 # COMMAND ----------
@@ -816,12 +816,12 @@ display(walking.head(30))
 # MAGIC | Step | Tool | Key result |
 # MAGIC |---|---|---|
 # MAGIC | Static conversion model | `ConversionModel` | Calibrated P(buy) by segment; naive price coefficient is biased |
-# MAGIC | Retention model | `RetentionModel` | P(lapse) by price change; correct use under PS21/11 is for retention discounts |
+# MAGIC | Retention model | `RetentionModel` | P(lapse) by price change; correct use under PS21/5 is for retention discounts |
 # MAGIC | DML elasticity | `ElasticityEstimator` | Causal elasticity within ~5% of true DGP; naive OLS off by 25–35% |
 # MAGIC | Demand curves | `DemandCurve` | Three competing curves showing the practical consequence of the bias |
 # MAGIC | Constrained optimisation | `OptimalPrice` | ENBP-constrained profit maximisation; DML and truth agree closely |
 # MAGIC | Efficient frontier | `OptimalPrice.profit_curve` | Naive model prices too conservatively, leaving margin on the table |
-# MAGIC | Compliance audit | `ENBPChecker`, `price_walking_report` | Full PS21/11 audit trail |
+# MAGIC | Compliance audit | `ENBPChecker`, `price_walking_report` | Full PS21/5 audit trail |
 # MAGIC
 # MAGIC **The practitioner takeaway:**
 # MAGIC
@@ -829,7 +829,7 @@ display(walking.head(30))
 # MAGIC
 # MAGIC DML is slower (5–15 minutes vs sub-second) and requires more data (20,000+ observations with genuine within-segment price variation). It is not always the right tool. If you are computing a portfolio-level rule-of-thumb, naive regression is fine. If you are building the demand model that feeds your pricing optimiser, DML is worth the cost.
 # MAGIC
-# MAGIC **The PS21/11 constraint:**
+# MAGIC **The PS21/5 constraint:**
 # MAGIC
 # MAGIC All renewal pricing must run below the ENBP ceiling. This library does not make that decision for you — it provides the `ENBPChecker` audit tool and the `enbp` parameter on `OptimalPrice`. The constraint reduces the feasible price space but does not change the methodology: you still want an accurate demand curve within that feasible space.
 # MAGIC

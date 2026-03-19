@@ -618,7 +618,7 @@ print("Saved: /tmp/survival_curves.png")
 # MAGIC ## Step 7: CLV Estimation
 # MAGIC
 # MAGIC Customer lifetime value using survival integration is the formula Consumer Duty
-# MAGIC (PS21/11) requires for fair value analysis. The `SurvivalCLV` class computes:
+# MAGIC (PS21/5) requires for fair value analysis. The `SurvivalCLV` class computes:
 # MAGIC
 # MAGIC ```
 # MAGIC CLV(x) = sum_{t=1}^{T} S(t|x(t)) * (P_t - L_t) * (1+r)^{-t}
@@ -849,7 +849,7 @@ print("=" * 110)
 # MAGIC %md
 # MAGIC ## Step 9: Discount Sensitivity Analysis (Consumer Duty)
 # MAGIC
-# MAGIC Under Consumer Duty (PS21/11), any renewal discount must be justified by CLV analysis.
+# MAGIC Under Consumer Duty (PS21/5), any renewal discount must be justified by CLV analysis.
 # MAGIC The `SurvivalCLV.discount_sensitivity()` method computes CLV under a range of discount
 # MAGIC amounts and returns `discount_justified = True` where the retention lift makes the
 # MAGIC discount commercially viable.

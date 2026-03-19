@@ -5,7 +5,7 @@
 # MAGIC
 # MAGIC **The problem:** Your pricing model produces technically correct loss costs for every policy in the book. That number tells you what you should charge actuarially. But it does not tell you what you *can* charge. Between the actuarial answer and the rate you actually file sit five overlapping constraints:
 # MAGIC
-# MAGIC - FCA PS21/11 (ENBP): renewal premiums must not exceed what a new customer would be quoted. This is enforceable, not advisory.
+# MAGIC - FCA PS21/5 (ENBP): renewal premiums must not exceed what a new customer would be quoted. This is enforceable, not advisory.
 # MAGIC - A portfolio-level rate change target (+3% here) set by the CFO.
 # MAGIC - Rate change guardrails — you cannot shock a policyholder with a 40% increase even if the model demands it.
 # MAGIC - A loss ratio ceiling you have told Lloyd's about.
@@ -132,7 +132,7 @@ current_premium_multiplier[other_mask] *= rng.uniform(0.95, 1.10, other_mask.sum
 current_premium = current_premium_multiplier * technical_price
 
 # ENBP: the new business equivalent price
-# FCA PS21/11 requires renewal price <= ENBP.
+# FCA PS21/5 requires renewal price <= ENBP.
 # In practice, new business is priced more aggressively (lower) in some segments.
 # ENBP is typically 95-115% of technical price, but tighter for mature/London.
 enbp_ratio = np.ones(N)
@@ -291,7 +291,7 @@ print("This gives the upper bound on profit — we will pay in constraint violat
 # MAGIC
 # MAGIC | Constraint | Value | Rationale |
 # MAGIC |---|---|---|
-# MAGIC | ENBP | Hard ceiling per policy | FCA PS21/11, non-negotiable |
+# MAGIC | ENBP | Hard ceiling per policy | FCA PS21/5, non-negotiable |
 # MAGIC | ENBP buffer | 1% | Safety margin to avoid edge cases |
 # MAGIC | Max rate change | ±15% | CFO guardrail — no shock increases |
 # MAGIC | GWP min | +3% vs current | Portfolio target rate increase |
@@ -756,7 +756,7 @@ print("to be stress-tested before filing.")
 # MAGIC %md
 # MAGIC ## Step 9: FCA Compliance — ENBP Audit Trail
 # MAGIC
-# MAGIC Under FCA PS21/11 and Consumer Duty, firms must be able to demonstrate that:
+# MAGIC Under FCA PS21/5 and Consumer Duty, firms must be able to demonstrate that:
 # MAGIC 1. ENBP was enforced at the individual policy level
 # MAGIC 2. The methodology used to set prices is documented
 # MAGIC 3. The decision was made on a specific date with specific parameters
@@ -819,7 +819,7 @@ print("In production: write to Unity Catalog with policy_run_id and effective_da
 # MAGIC
 # MAGIC A focused view of ENBP enforcement — the specific regulatory requirement most likely to attract FCA scrutiny. For every renewal policy we show: the proposed premium, the ENBP ceiling, the headroom, and whether the constraint was binding.
 # MAGIC
-# MAGIC The ENBP binding flag in `result.summary_df` marks policies where the optimal multiplier was at (or within 0.01%) of the ENBP upper bound. These are the policies where the optimiser had to cap the price to comply with PS21/11 — and where a human analyst would have exceeded it without the constraint.
+# MAGIC The ENBP binding flag in `result.summary_df` marks policies where the optimal multiplier was at (or within 0.01%) of the ENBP upper bound. These are the policies where the optimiser had to cap the price to comply with PS21/5 — and where a human analyst would have exceeded it without the constraint.
 
 # COMMAND ----------
 
@@ -929,7 +929,7 @@ else:
 # MAGIC **When to use this:**
 # MAGIC - Annual or quarterly ratebook updates for renewal books of 5,000+ policies
 # MAGIC - Any portfolio where the ENBP constraint is expected to be binding on more than ~5% of policies
-# MAGIC - Pricing reviews where the pricing team needs to show the regulator that PS21/11 was enforced systematically rather than through manual case-by-case review
+# MAGIC - Pricing reviews where the pricing team needs to show the regulator that PS21/5 was enforced systematically rather than through manual case-by-case review
 # MAGIC
 # MAGIC **When not to use this:**
 # MAGIC - New business pricing (no ENBP constraint; use a demand curve model with revenue maximisation instead)
@@ -938,4 +938,4 @@ else:
 # MAGIC
 # MAGIC **Library:** [insurance-optimise on PyPI](https://pypi.org/project/insurance-optimise/)
 # MAGIC
-# MAGIC **FCA reference:** [PS21/11 — General insurance pricing practices](https://www.fca.org.uk/publication/policy/ps21-11.pdf)
+# MAGIC **FCA reference:** [PS21/5 — General insurance pricing practices](https://www.fca.org.uk/publication/policy/ps21-5.pdf)
