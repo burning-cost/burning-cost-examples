@@ -1,31 +1,30 @@
 """
-Sequential monitoring of a pricing A/B experiment.
+Sequential (anytime-valid) A/B testing for insurance champion/challenger experiments.
 
 Pricing teams run A/B tests. They also look at results before the test ends.
 That combination is a problem. Classical hypothesis testing assumes you analyse
-the data once, at a pre-specified sample size. When you peek at the p-value
-weekly and stop early if it looks significant, you inflate the false positive
-rate — sometimes to 20-30% when you think you are running a 5% test.
+the data once. When you peek at the p-value weekly and stop early if it looks
+significant, you inflate the false positive rate — sometimes to 20-30% when
+you think you are running a 5% test.
 
-The right tool is sequential monitoring: checking the cumulative A/E ratio
-with valid confidence intervals at every observation, where validity means
-the probability of a false positive over the entire monitoring period stays
-at alpha regardless of when you look.
+The right tool is the mixture Sequential Probability Ratio Test (mSPRT). Its
+e-process Lambda_n satisfies P_0(exists n: Lambda_n >= 1/alpha) <= alpha at
+ALL stopping times. You can check weekly with no penalty. When Lambda_n >= 20
+(at alpha=0.05), reject H0 and stop. The type I error guarantee holds.
 
 This script demonstrates:
 
-    1. Simulate a 12-month A/B pricing experiment — champion vs challenger
-       rate structure, with the challenger genuinely better by 8% on claims
-    2. Show how naive weekly t-tests inflate the false positive rate
-    3. Use insurance-monitoring's ae_ratio_ci (exact Poisson intervals) to
-       do valid sequential monitoring: you can stop early when the CI
-       excludes 1.0 and the conclusion is reliable
-    4. Show the segmented view — the kind of weekly monitoring report a
-       pricing team actually needs
+    1. Simulate a 24-month champion/challenger frequency experiment
+    2. Show that naive monthly peeking inflates the false positive rate from
+       5% to ~20% under the null
+    3. Run the real experiment through SequentialTest month by month —
+       showing Lambda_n accumulate evidence over time
+    4. Inspect the anytime-valid confidence sequence for the rate ratio
+    5. Show the Bayesian secondary display and when to declare futility
 
 Libraries used
 --------------
-    insurance-monitoring  — ae_ratio, ae_ratio_ci, CalibrationChecker
+    insurance-monitoring  — SequentialTest, SequentialTestResult
 
 Dependencies
 ------------
@@ -34,397 +33,375 @@ Dependencies
 
 from __future__ import annotations
 
+import datetime
 import warnings
 
 import numpy as np
 import polars as pl
 
-from insurance_monitoring.calibration import (
-    ae_ratio,
-    ae_ratio_ci,
-    CalibrationChecker,
-)
+from insurance_monitoring.sequential import SequentialTest, sequential_test_from_df
 
 warnings.filterwarnings("ignore")
 
 # ---------------------------------------------------------------------------
-# Step 1: Simulate the A/B pricing experiment
+# Experiment parameters
 # ---------------------------------------------------------------------------
 #
-# Champion: current pricing. Challenger: revised rates, expected to be 8%
-# cheaper to serve (lower claims frequency) in the target segment.
+# UK motor champion/challenger. Both arms: 500 car-years per month.
+# True annual claim frequency:
+#   Champion  0.10  (100 claims per 1,000 car-years)
+#   Challenger 0.085 (15% improvement — a plausible re-rate benefit)
 #
-# Both groups start simultaneously. Policies arrive at a constant rate.
-# We split by even/odd policy index (random assignment in practice).
-# The challenger genuinely has lower claim frequency — we know the truth.
+# alpha=0.05 -> reject when Lambda_n >= 20
+# tau=0.05 -> prior on log-rate-ratio SD, tuned for effects of 5-15%
+# min_exposure_per_arm=500 -> wait at least 1 month before any decision
+# ---------------------------------------------------------------------------
+
+N_MONTHS = 24
+EXPOSURE_PER_ARM_PER_MONTH = 500.0
+TRUE_RATE_CHAMP = 0.10
+TRUE_RATE_CHALL = 0.085   # 15% improvement
+ALPHA = 0.05
+TAU = 0.05
+
+print("=" * 70)
+print("Sequential A/B testing with mSPRT (insurance-monitoring v0.5)")
+print("=" * 70)
+print()
+print(f"  Champion claim rate:   {TRUE_RATE_CHAMP:.3f} /car-year")
+print(f"  Challenger claim rate: {TRUE_RATE_CHALL:.3f} /car-year  ({(1 - TRUE_RATE_CHALL/TRUE_RATE_CHAMP):.0%} improvement)")
+print(f"  Exposure/arm/month:    {EXPOSURE_PER_ARM_PER_MONTH:.0f} car-years")
+print(f"  alpha={ALPHA}  ->  reject threshold Lambda >= {1/ALPHA:.0f}")
+print(f"  tau={TAU}  ->  prior on log-rate-ratio SD (expect 5% effects)")
+print()
+
+# ---------------------------------------------------------------------------
+# Step 1: The peaking problem — false positive rate under the null
+# ---------------------------------------------------------------------------
+#
+# Under the null (no true difference), how often does naive monthly peeking
+# trigger an early stop? We simulate 500 independent null experiments.
+# Each month we compute a simple z-test on the cumulative claim counts.
+# If we stop early whenever p < 0.05, the realised FPR is much higher.
+#
+# The mSPRT does not have this problem: its FPR is guaranteed to be <= alpha
+# regardless of how often you check.
 # ---------------------------------------------------------------------------
 
 print("=" * 70)
-print("Step 1: Simulate A/B pricing experiment (12 months)")
+print("Step 1: The peaking problem (500 null simulations)")
 print("=" * 70)
+print()
+
+rng = np.random.default_rng(0)
+n_sims = 500
+naive_fp = 0
+msprt_fp = 0
+
+for _ in range(n_sims):
+    # Naive peeking: cumulative Poisson z-test each month
+    cum_a = 0
+    cum_b = 0
+    cum_e = 0.0
+    naive_stopped = False
+    for _ in range(N_MONTHS):
+        ca = int(rng.poisson(TRUE_RATE_CHAMP * EXPOSURE_PER_ARM_PER_MONTH))
+        cb = int(rng.poisson(TRUE_RATE_CHAMP * EXPOSURE_PER_ARM_PER_MONTH))  # null: same rate
+        cum_a += ca
+        cum_b += cb
+        cum_e += EXPOSURE_PER_ARM_PER_MONTH
+        if cum_a > 0 and cum_b > 0:
+            # Naive two-sample Poisson test via normal approximation
+            rate_a = cum_a / cum_e
+            rate_b = cum_b / cum_e
+            se = np.sqrt(rate_a / cum_e + rate_b / cum_e)
+            if se > 0 and abs(rate_b - rate_a) / se > 1.96:
+                naive_stopped = True
+                break
+    if naive_stopped:
+        naive_fp += 1
+
+    # mSPRT: reset and run the same null experiment
+    test = SequentialTest(
+        metric="frequency",
+        alpha=ALPHA,
+        tau=TAU,
+        max_duration_years=N_MONTHS / 12,
+        min_exposure_per_arm=0.0,
+    )
+    for _ in range(N_MONTHS):
+        ca = int(rng.poisson(TRUE_RATE_CHAMP * EXPOSURE_PER_ARM_PER_MONTH))
+        cb = int(rng.poisson(TRUE_RATE_CHAMP * EXPOSURE_PER_ARM_PER_MONTH))  # null
+        result = test.update(ca, EXPOSURE_PER_ARM_PER_MONTH, cb, EXPOSURE_PER_ARM_PER_MONTH)
+        if result.should_stop and result.decision == "reject_H0":
+            msprt_fp += 1
+            break
+
+fpr_naive = naive_fp / n_sims
+fpr_msprt = msprt_fp / n_sims
+
+print(f"  Under H0 (no true difference), {n_sims} simulations:")
+print(f"    Naive monthly z-test:  {fpr_naive:.1%} false positive rate")
+print(f"    mSPRT (Lambda >= 20):  {fpr_msprt:.1%} false positive rate")
+print(f"    Nominal alpha:         {ALPHA:.1%}")
+print()
+print("  The mSPRT controls FPR at the nominal level regardless of how often")
+print("  you look. The naive approach delivers 3-4x the intended error rate.")
+
+# ---------------------------------------------------------------------------
+# Step 2: Run the real experiment month by month
+# ---------------------------------------------------------------------------
+#
+# Now run the challenger (15% better) through the full 24-month window.
+# We feed incremental monthly claims to SequentialTest.update() and track
+# the accumulating e-process Lambda_n. When Lambda_n crosses the threshold
+# of 1/alpha = 20, the test stops.
+#
+# update() takes *increments* since the last call, not cumulative totals.
+# It returns a SequentialTestResult with the current decision and estimates.
+# ---------------------------------------------------------------------------
+
+print()
+print("=" * 70)
+print("Step 2: Monthly experiment — Lambda_n accumulating evidence")
+print("=" * 70)
+print()
 
 rng = np.random.default_rng(42)
+test = SequentialTest(
+    metric="frequency",
+    alternative="less",          # challenger rate < champion rate
+    alpha=ALPHA,
+    tau=TAU,
+    max_duration_years=N_MONTHS / 12,
+    min_exposure_per_arm=EXPOSURE_PER_ARM_PER_MONTH,
+)
 
-# Experiment parameters
-N_POLICIES = 2_400           # 200 policies per month per arm
-N_MONTHS = 12
-N_PER_MONTH = 100            # 100 policies per arm per month
-TRUE_FREQ_CHAMP = 0.08       # 8% annual claim frequency, champion
-TRUE_FREQ_CHALL = 0.074      # 7.4% = 8% better, challenger
-MEAN_PREMIUM_CHAMP = 450.0   # £450 mean annual premium
-MEAN_PREMIUM_CHALL = 440.0   # slightly lower price — the challenger change
+start_date = datetime.date(2024, 1, 1)
+stopped_at_month = None
 
-# Predicted frequency by the model (set at the start of the experiment)
-# The model predicts the same for both arms — it can't know about the
-# pricing structure change yet.
-MODEL_FREQ = 0.078
-
-print(f"True claim frequency:  champion {TRUE_FREQ_CHAMP:.1%}, challenger {TRUE_FREQ_CHALL:.1%}")
-print(f"Model predicted freq:  {MODEL_FREQ:.1%} (same for both arms — model is not yet updated)")
-print(f"Policies per arm:      {N_MONTHS * N_PER_MONTH:,} over {N_MONTHS} months")
-print()
-
-# Generate monthly arrivals
-monthly_champ = []
-monthly_chall = []
+print(
+    f"  {'Month':>5}  {'Lambda_n':>10}  {'Threshold':>10}  "
+    f"{'Rate ratio':>12}  {'95% CS':>20}  Decision"
+)
+print(f"  {'-'*5}  {'-'*10}  {'-'*10}  {'-'*12}  {'-'*20}  {'-'*20}")
 
 for month in range(1, N_MONTHS + 1):
-    # Champion arm
-    exposure_c = rng.uniform(0.3, 1.0, N_PER_MONTH)  # partial-year exposures
-    claims_c = rng.poisson(TRUE_FREQ_CHAMP * exposure_c)
-    predicted_c = np.full(N_PER_MONTH, MODEL_FREQ)
-    monthly_champ.append({
-        "month": month,
-        "n": N_PER_MONTH,
-        "claims": claims_c.sum(),
-        "exposure": exposure_c.sum(),
-        "expected": (predicted_c * exposure_c).sum(),
-        # Age band: used in segmented analysis
-        "young": int((rng.uniform(0, 1, N_PER_MONTH) < 0.3).sum()),  # ~30% young
-    })
+    ca = int(rng.poisson(TRUE_RATE_CHAMP * EXPOSURE_PER_ARM_PER_MONTH))
+    cb = int(rng.poisson(TRUE_RATE_CHALL * EXPOSURE_PER_ARM_PER_MONTH))
+    period_date = start_date.replace(month=((month - 1) % 12) + 1,
+                                     year=start_date.year + (month - 1) // 12)
 
-    # Challenger arm (true frequency lower by 8% relative)
-    exposure_t = rng.uniform(0.3, 1.0, N_PER_MONTH)
-    claims_t = rng.poisson(TRUE_FREQ_CHALL * exposure_t)
-    predicted_t = np.full(N_PER_MONTH, MODEL_FREQ)
-    monthly_chall.append({
-        "month": month,
-        "n": N_PER_MONTH,
-        "claims": claims_t.sum(),
-        "exposure": exposure_t.sum(),
-        "expected": (predicted_t * exposure_t).sum(),
-        "young": int((rng.uniform(0, 1, N_PER_MONTH) < 0.3).sum()),
-    })
-
-# ---------------------------------------------------------------------------
-# Step 2: Naive weekly peaking — why it breaks
-# ---------------------------------------------------------------------------
-#
-# The naive approach: compute cumulative A/E each month and call "significant"
-# whenever the CI excludes 1.0. But the CI is computed at alpha=0.05 each
-# time, which means you are doing 12 independent significance tests each with
-# false positive rate 5%. The probability of at least one false positive is
-# 1 - (1 - 0.05)^12 = 46%.
-#
-# We simulate what happens under the null (no real difference) to illustrate.
-# ---------------------------------------------------------------------------
-
-print("=" * 70)
-print("Step 2: The peaking problem under the null (no true difference)")
-print("=" * 70)
-
-n_sim_null = 500
-false_positives_naive = 0
-false_positives_valid = 0
-
-for _ in range(n_sim_null):
-    cum_claims = 0
-    cum_expected = 0.0
-    for m in range(N_MONTHS):
-        exp_m = rng.uniform(0.3, 1.0, N_PER_MONTH)
-        # Null: both arms have same true frequency (use challenger = champion)
-        act_m = rng.poisson(TRUE_FREQ_CHAMP * exp_m)
-        cum_claims += act_m.sum()
-        cum_expected += (MODEL_FREQ * exp_m).sum()
-        # Naive: Poisson CI at each peek
-        ci = ae_ratio_ci(
-            actual=np.array([float(cum_claims)]),
-            predicted=np.array([cum_expected]),
-            alpha=0.05,
-            method="poisson",
-        )
-        if ci["upper"] < 1.0 or ci["lower"] > 1.0:
-            false_positives_naive += 1
-            break
-    else:
-        # Valid sequential: only decide at the final planned analysis
-        ci_final = ae_ratio_ci(
-            actual=np.array([float(cum_claims)]),
-            predicted=np.array([cum_expected]),
-            alpha=0.05,
-            method="poisson",
-        )
-        if ci_final["upper"] < 1.0 or ci_final["lower"] > 1.0:
-            false_positives_valid += 1
-
-fpr_naive = false_positives_naive / n_sim_null
-fpr_valid = false_positives_valid / n_sim_null
-
-print(f"Under the null (no true difference), out of {n_sim_null} simulations:")
-print(f"  Naive peaking (stop early if any CI excludes 1.0): {fpr_naive:.1%} false positive rate")
-print(f"  Single planned analysis at month {N_MONTHS}:               {fpr_valid:.1%} false positive rate")
-print()
-print(
-    "  Nominal alpha is 5%. The naive approach delivers 3-5x the intended rate."
-)
-print(
-    "  This is the most common error in pricing experiment analysis."
-)
-
-# ---------------------------------------------------------------------------
-# Step 3: Valid sequential monitoring of the real experiment
-# ---------------------------------------------------------------------------
-#
-# The correct approach with ae_ratio_ci is to decide up-front how you will
-# use the data. Options:
-#   a) Pre-specify a single analysis date. Peek for operational awareness
-#      but only make the go/no-go decision at month 12.
-#   b) Use a Pocock-style alpha spending function: spend alpha_i at month i
-#      such that sum(alpha_i) = total alpha. For 12 equally spaced looks,
-#      the Pocock boundary uses alpha_i = 0.0051 at each look (O'Brien-
-#      Fleming is more conservative at early looks).
-#   c) Use the Wald sequential probability ratio test with pre-specified
-#      effect size — the right tool when you want to stop early for
-#      efficiency but maintain Type I and Type II error control.
-#
-# Here we show option (a) — the simplest approach used by most UK pricing
-# teams — combined with a monitoring report that shows the trajectory clearly.
-# ---------------------------------------------------------------------------
-
-print()
-print("=" * 70)
-print("Step 3: Sequential monitoring — cumulative A/E trajectory")
-print("=" * 70)
-print()
-print("Challenger vs champion over 12 months:")
-print()
-print(
-    f"  {'Month':>6}  {'Cum claims':>11}  {'Cum expected':>13}  "
-    f"{'A/E':>6}  {'95% CI':>20}  {'Conclusion'}"
-)
-print(f"  {'-'*6}  {'-'*11}  {'-'*13}  {'-'*6}  {'-'*20}  {'-'*20}")
-
-# Use the challenger data (we want to detect that the challenger has lower A/E)
-cum_claims_chall = 0
-cum_expected_chall = 0.0
-early_signal_month = None
-
-for i, m in enumerate(monthly_chall):
-    cum_claims_chall += int(m["claims"])
-    cum_expected_chall += float(m["expected"])
-
-    ci = ae_ratio_ci(
-        actual=np.array([float(cum_claims_chall)]),
-        predicted=np.array([cum_expected_chall]),
-        alpha=0.05,
-        method="poisson",
+    result = test.update(
+        champion_claims=ca,
+        champion_exposure=EXPOSURE_PER_ARM_PER_MONTH,
+        challenger_claims=cb,
+        challenger_exposure=EXPOSURE_PER_ARM_PER_MONTH,
+        calendar_date=period_date,
     )
-    ae = ci["ae"]
-    lo = ci["lower"]
-    hi = ci["upper"]
 
-    if hi < 1.0 and early_signal_month is None:
-        early_signal_month = m["month"]
-        conclusion = "CI excludes 1.0 (*)  <-- signal"
-    elif hi < 1.0:
-        conclusion = "CI excludes 1.0 (*)"
-    elif lo > 1.0:
-        conclusion = "CI excludes 1.0 — worse!"
-    else:
-        conclusion = "CI spans 1.0  (continue)"
+    ci_str = f"[{result.rate_ratio_ci_lower:.3f}, {result.rate_ratio_ci_upper:.3f}]"
+    if result.rate_ratio_ci_lower == 0.0:
+        ci_str = "insufficient data"
+
+    # Mark the stopping point
+    flag = " <-- STOP" if result.should_stop and stopped_at_month is None else ""
+    if result.should_stop and stopped_at_month is None:
+        stopped_at_month = month
 
     print(
-        f"  {m['month']:>6}  {cum_claims_chall:>11,}  "
-        f"{cum_expected_chall:>12.1f}  "
-        f"{ae:>6.3f}  [{lo:.3f}, {hi:.3f}]  {conclusion}"
+        f"  {month:>5}  {result.lambda_value:>10.3f}  {result.threshold:>10.1f}  "
+        f"{result.rate_ratio:>12.4f}  {ci_str:>20}  {result.decision}{flag}"
     )
 
-print()
-if early_signal_month:
-    print(
-        f"  First month CI excludes 1.0: month {early_signal_month}."
-    )
-    print(
-        f"  Under the naive approach, you might stop here and declare a win."
-    )
-    print(
-        f"  The correct approach: pre-specify month 12 as the decision point,"
-    )
-    print(
-        f"  and use the monthly trajectory only to confirm the direction."
-    )
+    if result.should_stop:
+        break
 
-final_ci = ae_ratio_ci(
-    actual=np.array([float(cum_claims_chall)]),
-    predicted=np.array([cum_expected_chall]),
-    alpha=0.05,
-    method="poisson",
-)
 print()
-print(f"  Final analysis (month {N_MONTHS}):")
-print(f"    A/E = {final_ci['ae']:.3f}  95% CI [{final_ci['lower']:.3f}, {final_ci['upper']:.3f}]")
-print(
-    f"    Claims: {cum_claims_chall}  Expected: {cum_expected_chall:.1f}"
-)
-if final_ci["upper"] < 1.0:
-    print(
-        f"    Conclusion: challenger is reliably better. "
-        f"Challenger produces {(1 - final_ci['ae']):.1%} fewer claims than expected."
-    )
+if stopped_at_month is not None and result.decision == "reject_H0":
+    print(f"  Test stopped at month {stopped_at_month}: challenger confirmed better.")
+    print(f"  Rate ratio: {result.rate_ratio:.4f}  (true: {TRUE_RATE_CHALL/TRUE_RATE_CHAMP:.4f})")
+    print(f"  95% CS: [{result.rate_ratio_ci_lower:.4f}, {result.rate_ratio_ci_upper:.4f}]")
+    print(f"  Bayesian P(challenger better): {result.prob_challenger_better:.1%}")
 else:
-    print(
-        f"    Conclusion: inconclusive. Extend the experiment or accept uncertainty."
-    )
+    print(f"  Experiment ended at month {N_MONTHS}: {result.decision}")
+    print(f"  Final Lambda_n: {result.lambda_value:.3f}  (threshold: {result.threshold:.1f})")
 
 # ---------------------------------------------------------------------------
-# Step 4: Segmented monitoring report
-# ---------------------------------------------------------------------------
-#
-# Portfolio-level A/E can mask segment-level problems. A challenger rate
-# structure that looks flat overall may have a high A/E for young drivers —
-# that is exactly the adverse selection you would expect if the challenger
-# gives young drivers better rates than the champion.
-#
-# This is the monitoring report format: A/E by segment, with CIs.
-# ---------------------------------------------------------------------------
-
-print()
-print("=" * 70)
-print("Step 4: Segmented A/E monitoring (challenger, month 12)")
-print("=" * 70)
-
-# Generate segmented data for month 12
-rng2 = np.random.default_rng(100)
-N_SEG = 1_200  # full year, challenger arm
-
-age_bands = rng2.choice(["17-24", "25-34", "35-54", "55+"], size=N_SEG, p=[0.15, 0.25, 0.40, 0.20])
-exposure_seg = rng2.uniform(0.3, 1.0, N_SEG)
-
-# True frequencies by segment — the challenger happens to leave young driver
-# rates essentially unchanged (marginal improvement only), but older drivers
-# benefit more from the recalibration.
-true_freq_by_band = {"17-24": 0.140, "25-34": 0.090, "35-54": 0.060, "55+": 0.045}
-pred_freq_by_band = {"17-24": 0.130, "25-34": 0.085, "35-54": 0.058, "55+": 0.043}  # model underpredicts young
-
-actual_seg = np.array([
-    rng2.poisson(true_freq_by_band[b] * e)
-    for b, e in zip(age_bands, exposure_seg)
-], dtype=float)
-predicted_seg = np.array([pred_freq_by_band[b] for b in age_bands])
-
-seg_ae = ae_ratio(actual_seg, predicted_seg, exposure=exposure_seg, segments=age_bands)
-print()
-print(f"  {'Age band':>10}  {'Claims':>7}  {'Expected':>9}  {'A/E':>6}  {'95% CI':>20}  Status")
-print(f"  {'-'*10}  {'-'*7}  {'-'*9}  {'-'*6}  {'-'*20}  {'-'*10}")
-
-for row in seg_ae.sort("segment").iter_rows(named=True):
-    band = row["segment"]
-    mask = np.array(age_bands) == band
-    ci_seg = ae_ratio_ci(
-        actual=actual_seg[mask],
-        predicted=predicted_seg[mask],
-        exposure=exposure_seg[mask],
-        alpha=0.05,
-        method="poisson",
-    )
-    ae_v = ci_seg["ae"]
-    lo_v = ci_seg["lower"]
-    hi_v = ci_seg["upper"]
-
-    if hi_v < 0.95:
-        status = "IMPROVE"
-    elif lo_v > 1.05:
-        status = "REVIEW"
-    else:
-        status = "OK"
-
-    print(
-        f"  {band:>10}"
-        f"  {int(row['actual']):>7,}"
-        f"  {row['expected']:>9.1f}"
-        f"  {ae_v:>6.3f}"
-        f"  [{lo_v:.3f}, {hi_v:.3f}]"
-        f"  {status}"
-    )
-
-print()
-print(
-    "  Young drivers show A/E > 1.0 because the model underpredicts their"
-)
-print(
-    "  frequency. The challenger pricing change didn't correct this — it may"
-)
-print(
-    "  have made it marginally worse by attracting slightly more young drivers."
-)
-print(
-    "  This is exactly the kind of segment-level signal a flat portfolio A/E"
-)
-print(
-    "  would have hidden."
-)
-
-# ---------------------------------------------------------------------------
-# Step 5: CalibrationChecker — comparing challenger model to reference
+# Step 3: History DataFrame — the monitoring report
 # ---------------------------------------------------------------------------
 #
-# The CalibrationChecker runs a full suite (balance property, auto-calibration,
-# Murphy decomposition) for a complete picture of model fit quality.
-# Use it at the end of the experiment to decide whether to promote the
-# challenger pricing to the full portfolio.
+# test.history() returns a Polars DataFrame with one row per update() call.
+# This is what you export to your monitoring dashboard or send to the team.
+# Key columns: period_index, lambda_value, rate_ratio, ci_lower, ci_upper,
+# decision, cum_champion_exposure, cum_challenger_exposure.
 # ---------------------------------------------------------------------------
 
 print()
 print("=" * 70)
-print("Step 5: CalibrationChecker — full diagnostics at experiment close")
+print("Step 3: history() — full trajectory as a Polars DataFrame")
 print("=" * 70)
+print()
 
-checker = CalibrationChecker(distribution="poisson", alpha=0.05, bootstrap_n=500)
-checker.fit(actual_seg, predicted_seg, exposure=exposure_seg, seed=42)
-report = checker.check(actual_seg, predicted_seg, exposure=exposure_seg, seed=42)
+hist = test.history()
+print(f"  history() schema: {hist.schema}")
+print()
+print(f"  Rows: {len(hist)}  (one per update() call)")
+print()
 
-print(f"\n  Overall verdict:  {report.verdict()}")
-print(f"  Balance (A/E=1?): {report.balance.passed}  "
-      f"A/E = {report.balance.ae_ratio:.3f}  "
-      f"p-value = {report.balance.p_value:.3f}")
-print(f"  Auto-calibration: {report.auto_calibration.passed}  "
-      f"p-value = {report.auto_calibration.p_value:.3f}")
-if report.murphy is not None:
-    print(
-        f"  Murphy MCB:       {report.murphy.mcb:.4f}  "
-        f"(miscalibration; lower is better)"
-    )
-    print(
-        f"  Murphy DSC:       {report.murphy.dsc:.4f}  "
-        f"(discrimination; higher is better)"
-    )
+# Show summary stats from the history
+lambda_max = hist["lambda_value"].max()
+lambda_final = hist["lambda_value"][-1]
+n_inconclusive = hist.filter(pl.col("decision") == "inconclusive").shape[0]
+n_stop = hist.filter(pl.col("decision") != "inconclusive").shape[0]
+
+print(f"  Peak Lambda_n:       {lambda_max:.3f}")
+print(f"  Final Lambda_n:      {lambda_final:.3f}")
+print(f"  Months inconclusive: {n_inconclusive}")
+print(f"  Months to decision:  {n_stop}")
+
+# ---------------------------------------------------------------------------
+# Step 4: Anytime-valid confidence sequence
+# ---------------------------------------------------------------------------
+#
+# The rate_ratio_ci_lower and rate_ratio_ci_upper in each result form a
+# time-uniform (anytime-valid) confidence sequence. Unlike classical CIs,
+# this CI is valid at all monitoring times simultaneously — P(true ratio
+# falls outside the CS at ANY point) <= alpha.
+#
+# Classical 95% CIs would be invalid if inspected repeatedly. The CS is
+# slightly wider to pay for this guarantee, but it narrows as data accumulates.
+# Once the CS excludes 1.0 entirely (for 'less' alternative, upper bound < 1),
+# you have anytime-valid evidence the challenger is better.
+# ---------------------------------------------------------------------------
 
 print()
-print(
-    "  The balance test checks overall A/E = 1. Auto-calibration checks"
+print("=" * 70)
+print("Step 4: Anytime-valid confidence sequence vs classical CI")
+print("=" * 70)
+print()
+print("  At the stopping point:")
+print(f"    Rate ratio:   {result.rate_ratio:.4f}")
+print(f"    95% CS:       [{result.rate_ratio_ci_lower:.4f}, {result.rate_ratio_ci_upper:.4f}]")
+print(f"    True ratio:   {TRUE_RATE_CHALL/TRUE_RATE_CHAMP:.4f}")
+print()
+print("  The CS upper bound < 1.0 confirms the challenger is significantly")
+print("  better. This conclusion is valid at this stopping point because the")
+print("  mSPRT guarantees FPR control: Lambda_n >= 1/alpha => H0 is rejected")
+print("  with at most alpha probability of being wrong.")
+print()
+print("  A classical CI at this interim point would give the same numbers")
+print("  but WITHOUT the anytime-valid guarantee. If the team had stopped")
+print("  the experiment at any of the earlier months where the p-value crossed")
+print("  0.05 in a naive test, the false positive rate would be inflated.")
+
+# ---------------------------------------------------------------------------
+# Step 5: Futility — when the experiment should stop early for the other reason
+# ---------------------------------------------------------------------------
+#
+# Futility detection: if Lambda_n is very low (well below 1), the data are
+# consistently consistent with H0. There is no point continuing. Set
+# futility_threshold to enable this.
+#
+# Here we simulate a null experiment with futility detection enabled.
+# Under equal rates, Lambda_n will often drift down toward zero quickly,
+# triggering futility.
+# ---------------------------------------------------------------------------
+
+print()
+print("=" * 70)
+print("Step 5: Futility detection — stopping when evidence against H1")
+print("=" * 70)
+print()
+
+rng_fut = np.random.default_rng(7)
+test_futility = SequentialTest(
+    metric="frequency",
+    alternative="less",
+    alpha=ALPHA,
+    tau=TAU,
+    max_duration_years=N_MONTHS / 12,
+    min_exposure_per_arm=EXPOSURE_PER_ARM_PER_MONTH,
+    futility_threshold=0.01,   # stop if Lambda_n < 0.01
 )
-print(
-    "  whether systematic under/over-prediction varies across the risk range."
+
+fut_months = 0
+fut_result = None
+for month in range(1, N_MONTHS + 1):
+    ca = int(rng_fut.poisson(TRUE_RATE_CHAMP * EXPOSURE_PER_ARM_PER_MONTH))
+    cb = int(rng_fut.poisson(TRUE_RATE_CHAMP * EXPOSURE_PER_ARM_PER_MONTH))  # null: equal rates
+    fut_result = test_futility.update(ca, EXPOSURE_PER_ARM_PER_MONTH, cb, EXPOSURE_PER_ARM_PER_MONTH)
+    fut_months += 1
+    if fut_result.should_stop:
+        break
+
+print(f"  Null experiment (challenger = champion, no real improvement):")
+print(f"  Stopped at month {fut_months}: {fut_result.decision}")
+print(f"  Final Lambda_n: {fut_result.lambda_value:.4f}")
+print(f"  Rate ratio: {fut_result.rate_ratio:.4f}")
+print()
+if fut_result.decision == "futility":
+    print(f"  Lambda_n fell below 0.01 — experiment is futile. Challenger")
+    print(f"  is not delivering the expected improvement. Stop and investigate.")
+else:
+    print(f"  Experiment ran to completion without triggering futility.")
+    print(f"  This is expected: under the null, Lambda is a martingale and")
+    print(f"  may not consistently drift toward zero in every realisation.")
+
+# ---------------------------------------------------------------------------
+# Step 6: sequential_test_from_df — batch workflow
+# ---------------------------------------------------------------------------
+#
+# If you have historical data as a Polars DataFrame (one row per reporting
+# period), use sequential_test_from_df to run the test without a manual loop.
+# Returns the SequentialTestResult from the final update() call.
+# ---------------------------------------------------------------------------
+
+print()
+print("=" * 70)
+print("Step 6: sequential_test_from_df — batch workflow from a DataFrame")
+print("=" * 70)
+print()
+
+rng_df = np.random.default_rng(99)
+monthly_rows = []
+for m in range(1, 13):
+    monthly_rows.append({
+        "period": datetime.date(2024, m, 1) if m <= 12 else datetime.date(2025, m - 12, 1),
+        "champ_claims": int(rng_df.poisson(TRUE_RATE_CHAMP * 500)),
+        "champ_exposure": 500.0,
+        "chall_claims": int(rng_df.poisson(TRUE_RATE_CHALL * 500)),
+        "chall_exposure": 500.0,
+    })
+
+df = pl.DataFrame(monthly_rows)
+
+batch_result = sequential_test_from_df(
+    df=df,
+    champion_claims_col="champ_claims",
+    champion_exposure_col="champ_exposure",
+    challenger_claims_col="chall_claims",
+    challenger_exposure_col="chall_exposure",
+    date_col="period",
+    metric="frequency",
+    alpha=ALPHA,
+    tau=TAU,
+    alternative="less",
+    min_exposure_per_arm=EXPOSURE_PER_ARM_PER_MONTH,
 )
-print(
-    "  Murphy decomposition decomposes the Brier/deviance score into"
-)
-print(
-    "  miscalibration (MCB), discrimination (DSC), and irreducible noise."
-)
-print(
-    "  A champion challenger recommendation requires all three tests to pass."
-)
+
+print(f"  12-month batch run ({len(df)} rows):")
+print(f"  Decision:         {batch_result.decision}")
+print(f"  Lambda_n:         {batch_result.lambda_value:.3f}  (threshold: {batch_result.threshold:.1f})")
+print(f"  Rate ratio:       {batch_result.rate_ratio:.4f}")
+print(f"  Champion rate:    {batch_result.champion_rate:.4f}")
+print(f"  Challenger rate:  {batch_result.challenger_rate:.4f}")
+print(f"  Calendar days:    {batch_result.total_calendar_time_days:.0f}")
+print(f"  Summary:          {batch_result.summary}")
+
+# ---------------------------------------------------------------------------
+# Summary
+# ---------------------------------------------------------------------------
 
 print()
 print("=" * 70)
@@ -433,23 +410,26 @@ print("=" * 70)
 print(f"""
 What was demonstrated:
 
-  1. Peaking problem  Naive A/B testing with weekly looks at p-values
-                      inflates false positive rate from 5% to ~{fpr_naive:.0%}
-                      ({n_sim_null} simulations under the null)
+  1. Peaking problem
+     Naive monthly z-tests: {fpr_naive:.0%} false positive rate under the null
+     mSPRT with Lambda >= 20: {fpr_msprt:.0%} false positive rate (nominal {ALPHA:.0%})
 
-  2. Sequential A/E   Cumulative A/E trajectory with exact Poisson CIs
-                      Challenger A/E = {final_ci['ae']:.3f} [{final_ci['lower']:.3f}, {final_ci['upper']:.3f}] at month {N_MONTHS}
-                      CI excludes 1.0: {'yes — challenger confirmed better' if final_ci['upper'] < 1.0 else 'no — inconclusive'}
+  2. SequentialTest.update()
+     Fed incremental monthly claims to the test over {N_MONTHS} months.
+     Lambda_n accumulated evidence; test stopped at month {stopped_at_month or N_MONTHS}.
+     Rate ratio at stopping: {result.rate_ratio:.4f}
+     95% anytime-valid CS:   [{result.rate_ratio_ci_lower:.4f}, {result.rate_ratio_ci_upper:.4f}]
 
-  3. Segmented A/E    Young drivers have higher A/E than portfolio average
-                      Standard flat A/E monitoring would miss this
+  3. Key API points:
+     - update() takes increments, not cumulative totals
+     - history() returns a Polars DataFrame for export/dashboard
+     - sequential_test_from_df() for batch processing from a DataFrame
+     - futility_threshold stops early when Lambda_n is very small
+     - alternative='less' for one-sided tests (challenger should be lower)
 
-  4. CalibrationChecker  Full diagnostic suite: balance + auto-cal + Murphy
-                          Verdict: {report.verdict()}
-
-  Key design principle:
-    Decide your analysis date before the experiment starts.
-    Use monthly A/E to monitor direction, not to trigger early stopping.
-    The final decision uses ae_ratio_ci at the pre-planned sample size.
-    Only then is the 5% false positive rate guarantee meaningful.
+  4. Design principle:
+     The mSPRT e-process has E_0[Lambda_n] = 1 for all n. The test threshold
+     1/alpha is exactly calibrated: the probability of ever crossing it under
+     the null is <= alpha. No Bonferroni, no alpha-spending, no fixed horizon
+     required. Check weekly, monthly, or irregularly — the guarantee holds.
 """)

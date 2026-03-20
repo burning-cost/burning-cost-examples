@@ -1,42 +1,43 @@
 """
 Heterogeneous treatment effect estimation for insurance pricing.
 
-The problem: you want to know which customer segments respond most to a premium
-increase. Not just "is there a causal effect on average?" but "is the effect
-larger for young drivers than older ones? Does it vary by NCB band? What is the
-counterfactual: if we had charged everyone £350, what would the average claim
-rate have been?"
+The problem: you want to know which customers respond most to a price change.
+Not just "is there a causal effect on average?" but "is the price elasticity
+larger for PCW customers than direct? Does it vary by NCD band?"
 
-Standard regression gives biased answers because premium is not randomly
-assigned. Higher-risk customers get higher premiums. The risk-premium
-correlation means naive OLS confuses risk effects with price effects.
+Standard regression gives biased answers. Higher-risk customers get higher
+premiums — the risk-premium correlation confounds naive elasticity estimates.
+Double Machine Learning (DML) via CausalForestDML removes this confounding
+using cross-fitting.
 
-Double Machine Learning (DML) via the AutoDML approach in insurance-causal
-removes this confounding. The key insight: instead of trying to model the
-treatment propensity (GPS) — which is numerically unstable in renewal books
-where high-premium customers have 20% renewal rates — we directly learn
-the Riesz representer via minimax regression. This is the Chernozhukov et al.
-(2022) Automatic DML approach.
+The key practical insight this script demonstrates: individual-level CATEs
+from a causal forest are noisy. You cannot reliably rank individual customers
+by their price sensitivity from a single year of renewal data. What you can do
+reliably is estimate group average treatment effects (GATES) for well-defined
+segments. GATES across NCD bands are the right granularity for a rate review
+discussion.
 
 This script demonstrates:
 
-    1. Generate a synthetic UK motor portfolio with known causal truth
-    2. Show that naive OLS is biased — it confuses risk effects with price effects
-    3. Fit PremiumElasticity (AutoDML) to recover the true Average Marginal Effect
-    4. Estimate segment-level effects by NCB band and age band
-    5. Dose-response curve: E[outcome if premium = d] across a premium grid
+    1. Generate synthetic UK motor renewal data with known heterogeneous
+       price elasticity (NCD band 0 = most elastic, NCD band 5 = least)
+    2. Fit HeterogeneousElasticityEstimator and compute per-customer CATEs
+    3. Formal heterogeneity test via BLP (Best Linear Predictor)
+    4. GATES: group average effects by CATE quantile — the key segment view
+    5. CLAN: which risk factors drive the heterogeneity
+    6. RATE/AUTOC: does the CATE ranking identify genuinely high-effect customers
 
 Libraries used
 --------------
-    insurance-causal  — PremiumElasticity, DoseResponseCurve, SyntheticContinuousDGP
+    insurance-causal  — HeterogeneousElasticityEstimator, HeterogeneousInference,
+                        TargetingEvaluator, make_hte_renewal_data, true_cate_by_ncd
 
 Dependencies
 ------------
     uv add "insurance-causal"
 
-Approximate runtime: 2–5 minutes. The cross-fitting (5 folds x 2 models)
-is the main cost. For quick experimentation, set n_folds=3 and use
-nuisance_backend='sklearn'.
+Approximate runtime: 5-10 minutes (CausalForestDML with 5-fold cross-fitting).
+For faster iteration, reduce n_estimators and catboost_iterations.
 """
 
 from __future__ import annotations
@@ -44,344 +45,328 @@ from __future__ import annotations
 import warnings
 
 import numpy as np
+import polars as pl
 
 warnings.filterwarnings("ignore")
 
-from insurance_causal.autodml import (
-    PremiumElasticity,
-    DoseResponseCurve,
-    SyntheticContinuousDGP,
+from insurance_causal.causal_forest import (
+    HeterogeneousElasticityEstimator,
+    HeterogeneousInference,
+    TargetingEvaluator,
+    make_hte_renewal_data,
+    true_cate_by_ncd,
 )
-from sklearn.linear_model import LinearRegression
 
 # ---------------------------------------------------------------------------
-# Step 1: Generate synthetic UK motor portfolio
+# Step 1: Synthetic UK motor renewal data
 # ---------------------------------------------------------------------------
 #
-# SyntheticContinuousDGP models a UK motor renewal book with:
-#   X[:,0]: normalised age (0=young, 1=old)
-#   X[:,1]: NCB score (0=no NCB, 1=full NCB)
-#   X[:,2]: vehicle age (0=new, 1=old)
-#   X[:,3]: postcode risk score
-#   X[:,4:]: noise features
+# make_hte_renewal_data generates a renewal book with known CATE structure:
+#   NCD=0: tau = -0.30  (most price-elastic — young, price-constrained)
+#   NCD=5: tau = -0.10  (least elastic — loyal, value their NCD protection)
 #
-# The structural equation is:
-#   log E[Y|D,X] = log_risk + beta_D * D
-#
-# So the true Average Marginal Effect is:
-#   AME = beta_D * E[E[Y|D,X]]
-#
-# Premium D is correlated with log_risk (the underwriter sets it that way).
-# This confounding is what DML needs to remove.
+# The treatment log_price_change is confounded: risk factors (NCD, age, channel)
+# determine most of the re-rate. DML cross-fitting identifies the causal effect
+# from the exogenous portion of price variation.
 # ---------------------------------------------------------------------------
 
 print("=" * 70)
-print("Step 1: Generate synthetic UK motor portfolio")
+print("Heterogeneous price elasticity via CausalForestDML")
+print("insurance-causal v0.4 — causal_forest subpackage")
 print("=" * 70)
+print()
+print("Step 1: Generate synthetic UK motor renewal data")
+print("-" * 70)
 
-dgp = SyntheticContinuousDGP(
-    n=4_000,
-    n_features=8,
-    outcome_family="gaussian",
-    beta_D=-0.002,             # True causal effect: -0.002 per £1 premium
-    confounding_strength=0.5,  # Moderate: premium is correlated with risk
-    sigma_D=30.0,              # £30 SD of pricing noise — the exogenous variation
-    base_premium=350.0,
-    random_state=42,
-)
+df = make_hte_renewal_data(n=8_000, seed=42)
 
-X, D, Y, S = dgp.generate()
-df = dgp.as_dataframe()
+print(f"  Records:           {len(df):,}")
+print(f"  Renewal rate:      {df['renewed'].mean():.1%}")
+print(f"  Price change SD:   {df['log_price_change'].std():.4f} log-scale")
+print(f"  NCD distribution:")
+ncd_dist = df.group_by("ncd_years").agg(pl.len().alias("n")).sort("ncd_years")
+for row in ncd_dist.iter_rows(named=True):
+    print(f"    NCD {row['ncd_years']}: {row['n']:,} policies")
 
-print(f"Observations: {len(df):,}")
-print(f"Premium range: £{D.min():.0f} – £{D.max():.0f}")
-print(f"Mean premium: £{D.mean():.0f}")
-print(f"Outcome range: {Y.min():.3f} – {Y.max():.3f}  (log-scale pure premium proxy)")
-print(f"\nTrue AME: {dgp.true_ame_:.6f}")
-print(
-    f"  Interpretation: each £1 increase in premium changes the outcome"
-    f" by {dgp.true_ame_:.4f} on average"
-)
-print(
-    f"  A £50 premium increase: expected outcome change = "
-    f"{dgp.true_ame_ * 50:.4f}"
-)
-
-# Feature names for segment labelling
-feature_names = [
-    "age_norm", "ncb_score", "vehicle_age_norm", "postcode_risk",
-    "noise_1", "noise_2", "noise_3", "noise_4",
-]
-
-# Create age and NCB bands for segment analysis
-age_band = np.where(
-    X[:, 0] < 0.3, "young",
-    np.where(X[:, 0] < 0.6, "mid", "senior")
-)
-ncb_band = np.where(
-    X[:, 1] < 0.33, "low_ncb",
-    np.where(X[:, 1] < 0.67, "mid_ncb", "high_ncb")
-)
-
-print(f"\nAge band distribution:  young={int((age_band=='young').sum()):,}  "
-      f"mid={int((age_band=='mid').sum()):,}  "
-      f"senior={int((age_band=='senior').sum()):,}")
-print(f"NCB band distribution:  low={int((ncb_band=='low_ncb').sum()):,}  "
-      f"mid={int((ncb_band=='mid_ncb').sum()):,}  "
-      f"high={int((ncb_band=='high_ncb').sum()):,}")
+print()
+print("  True CATE by NCD band (the ground truth we aim to recover):")
+truth = true_cate_by_ncd(df)
+for row in truth.iter_rows(named=True):
+    print(
+        f"    NCD {row['ncd_years']}: tau = {row['true_cate_mean']:.2f}  "
+        f"({row['n']:,} policies)"
+    )
+print()
+print("  Interpretation: NCD=0 drivers reduce renewal probability by 0.30")
+print("  per unit increase in log_price_change. NCD=5 drivers reduce by 0.10.")
+print("  This 3x heterogeneity is economically meaningful for retention targeting.")
 
 # ---------------------------------------------------------------------------
-# Step 2: Why naive OLS is biased
+# Step 2: Fit HeterogeneousElasticityEstimator
 # ---------------------------------------------------------------------------
 #
-# Two naive approaches:
-#   a) Regress Y on D alone — confounding completely dominates
-#   b) Regress Y on D and X — partially controlled, but the linear model
-#      cannot fully separate risk effects from price effects when they interact
+# HeterogeneousElasticityEstimator wraps CausalForestDML with insurance defaults:
+#   - CatBoost nuisance models (handles categoricals natively)
+#   - honest=True (Athey & Imbens 2016 sample splitting for valid inference)
+#   - min_samples_leaf=20 (sparse rating segments need larger leaves)
 #
-# Both will be biased relative to the true AME. The direction of bias depends
-# on the confounding structure: positive confounding (higher D → higher Y via
-# risk) pulls the OLS coefficient toward zero or even positive, masking the
-# true negative causal effect.
+# fit() accepts polars DataFrames directly.
+# outcome: binary renewal indicator
+# treatment: log_price_change (the confounded but partially exogenous variable)
+# confounders: risk factors that jointly determine price AND outcome
 # ---------------------------------------------------------------------------
 
 print()
 print("=" * 70)
-print("Step 2: Naive OLS vs true AME — the bias problem")
-print("=" * 70)
-
-naive = LinearRegression()
-naive.fit(D.reshape(-1, 1), Y)
-print(f"\nNaive OLS (D only):    coefficient = {naive.coef_[0]:.6f}")
-
-controlled = LinearRegression()
-controlled.fit(np.column_stack([D.reshape(-1, 1), X]), Y)
-print(f"OLS with controls:     coefficient = {controlled.coef_[0]:.6f}")
-print(f"True AME:              {dgp.true_ame_:.6f}")
+print("Step 2: Fit HeterogeneousElasticityEstimator")
+print("-" * 70)
+print("  Fitting CausalForestDML with 5-fold cross-fitting...")
+print("  (CatBoost nuisance models, honest=True, min_samples_leaf=20)")
 print()
 
-bias_naive = naive.coef_[0] - dgp.true_ame_
-bias_controlled = controlled.coef_[0] - dgp.true_ame_
-print(f"Bias of naive OLS:     {bias_naive:+.6f}  ({abs(bias_naive)/abs(dgp.true_ame_):.0%} of true AME)")
-print(f"Bias of OLS+controls:  {bias_controlled:+.6f}  ({abs(bias_controlled)/abs(dgp.true_ame_):.0%} of true AME)")
-print()
-print(
-    "  With confounding_strength=0.5, the risk-premium correlation is strong"
-)
-print(
-    "  enough to make OLS unreliable. The sign of the OLS coefficient can"
-)
-print(
-    "  even flip relative to the true causal effect in stronger confounding."
-)
-print(
-    "  DML removes this by partialling out the influence of X from both Y and D."
-)
+confounders = ["age", "ncd_years", "vehicle_group", "channel", "region"]
 
-# ---------------------------------------------------------------------------
-# Step 3: Fit PremiumElasticity (AutoDML)
-# ---------------------------------------------------------------------------
-#
-# PremiumElasticity implements the Riesz representer approach (Chernozhukov
-# et al. 2022). Instead of modelling the GPS density p(D|X), which is
-# ill-posed for near-deterministic pricing, it learns the Riesz representer
-# directly via a minimax forest regression.
-#
-# Cross-fitting: 5 folds. Each fold trains nuisance models on 80% of the data
-# and predicts on the held-out 20%. This prevents the overfitting that would
-# arise from using in-sample predictions for causal inference.
-# ---------------------------------------------------------------------------
-
-print()
-print("=" * 70)
-print("Step 3: Fit PremiumElasticity (AutoDML / Riesz representer)")
-print("=" * 70)
-print("Fitting 5-fold cross-fitted nuisance models...")
-print("(This typically takes 2–5 minutes on 4,000 observations)")
-
-model = PremiumElasticity(
-    outcome_family="gaussian",
+est = HeterogeneousElasticityEstimator(
+    binary_outcome=True,
+    n_estimators=200,
     n_folds=5,
-    nuisance_backend="sklearn",   # use sklearn for portability; switch to
-    riesz_type="forest",          # 'catboost' for production-quality fits
-    inference="eif",
+    catboost_iterations=200,
+    min_samples_leaf=20,
     random_state=42,
 )
 
-model.fit(X, D, Y)
-result = model.estimate()
-
-print(f"\nAutomatic DML result:")
-print(f"  {result.summary()}")
-print()
-print(f"  True AME:    {dgp.true_ame_:.6f}")
-print(f"  Estimated:   {result.estimate:.6f}")
-print(f"  Bias:        {result.estimate - dgp.true_ame_:+.6f}  "
-      f"({abs(result.estimate - dgp.true_ame_) / abs(dgp.true_ame_):.0%} of true AME)")
-print(f"  True in CI:  {'yes' if result.ci_low <= dgp.true_ame_ <= result.ci_high else 'no (coverage miss)'}")
-
-# ---------------------------------------------------------------------------
-# Step 4: Segment-level effects (equivalent to GATEs)
-# ---------------------------------------------------------------------------
-#
-# The portfolio AME hides heterogeneity. The question "which segments respond
-# most to price increases?" requires segment-level effects.
-#
-# PremiumElasticity.effect_by_segment() computes this without refitting:
-# it splits the efficient influence function (EIF) scores by segment and
-# runs inference on each subset. This is statistically valid because the
-# EIF decomposes additively over subgroups.
-#
-# Note the asymmetry: individual-level CATEs would be highly noisy. Segment-
-# level GATEs are much more reliable because they average over many policies.
-# That is the right level of granularity for a rate review discussion.
-# ---------------------------------------------------------------------------
-
-print()
-print("=" * 70)
-print("Step 4: Segment-level effects (by NCB band and age band)")
-print("=" * 70)
-
-# Segment by NCB band
-print("\nAME by NCB band (no refitting required):")
-print(
-    f"  {'Segment':<15}  {'AME':>10}  {'95% CI':>24}  {'p-value':>8}  "
-    f"{'n':>6}  {'Sig?':>5}"
+est.fit(
+    df,
+    outcome="renewed",
+    treatment="log_price_change",
+    confounders=confounders,
 )
-print(f"  {'-'*15}  {'-'*10}  {'-'*24}  {'-'*8}  {'-'*6}  {'-'*5}")
 
-seg_results_ncb = model.effect_by_segment(ncb_band)
-for sr in sorted(seg_results_ncb, key=lambda x: x.segment_name):
-    r = sr.result
-    sig = "*" if r.pvalue < 0.05 else ""
+# ATE: average treatment effect across all customers
+ate, ate_lb, ate_ub = est.ate()
+print(f"  Average Treatment Effect (ATE):")
+print(f"    Estimated: {ate:.4f}  95% CI [{ate_lb:.4f}, {ate_ub:.4f}]")
+print(f"    True mean: {df['true_cate'].mean():.4f}")
+print()
+print("  Individual CATE estimates (per customer):")
+cates = est.cate(df)
+print(f"    Mean:  {cates.mean():.4f}")
+print(f"    Std:   {cates.std():.4f}")
+print(f"    Range: [{cates.min():.4f}, {cates.max():.4f}]")
+print()
+print("  Note: individual CATEs are noisy. The std > true heterogeneity is")
+print("  expected — individual estimates carry sampling uncertainty. Use GATES")
+print("  for segment-level inference, not individual CATEs for customer ranking.")
+
+# ---------------------------------------------------------------------------
+# Step 3: GATES by NCD band — the key segment view
+# ---------------------------------------------------------------------------
+#
+# est.gate(df, by="ncd_years") computes group average treatment effects for
+# each level of a categorical variable. This is where the actionable insight
+# lives: the difference in price elasticity between NCD=0 and NCD=5 directly
+# informs how much retention discount is justified per band.
+#
+# Wide CIs on small segments are expected and honest — don't report them as
+# if they were reliable.
+# ---------------------------------------------------------------------------
+
+print()
+print("=" * 70)
+print("Step 3: GATES by NCD band (group average treatment effects)")
+print("-" * 70)
+print()
+
+gates_ncd = est.gate(df, by="ncd_years")
+
+print(
+    f"  {'NCD':>5}  {'GATE':>10}  {'95% CI':>28}  {'n':>7}  {'True CATE':>10}"
+)
+print(f"  {'-'*5}  {'-'*10}  {'-'*28}  {'-'*7}  {'-'*10}")
+
+true_by_ncd = {
+    row["ncd_years"]: row["true_cate_mean"]
+    for row in truth.iter_rows(named=True)
+}
+
+for row in gates_ncd.iter_rows(named=True):
+    ncd = row["ncd_years"]
+    true_val = true_by_ncd.get(ncd, float("nan"))
     print(
-        f"  {sr.segment_name:<15}"
-        f"  {r.estimate:>+10.6f}"
-        f"  [{r.ci_low:+.6f}, {r.ci_high:+.6f}]"
-        f"  {r.pvalue:>8.4f}"
-        f"  {sr.n_obs:>6,}"
-        f"  {sig:>5}"
+        f"  {ncd:>5}  {row['cate']:>+10.4f}  "
+        f"[{row['ci_lower']:+.4f}, {row['ci_upper']:+.4f}]  "
+        f"{row['n']:>7,}  "
+        f"{true_val:>+10.4f}"
     )
 
 print()
-print(
-    "  Low NCB = younger/newer policies with less claims history. If the AME"
-)
-print(
-    "  is more negative for low NCB, those customers are more responsive to"
-)
-print(
-    "  premium changes — consistent with higher price sensitivity among less-"
-)
-print(
-    "  established policyholders. High NCB customers have built loyalty and"
-)
-print(
-    "  are typically less responsive."
-)
-
-# Segment by age band
-print("\nAME by age band:")
-print(
-    f"  {'Segment':<15}  {'AME':>10}  {'95% CI':>24}  {'p-value':>8}  "
-    f"{'n':>6}  {'Sig?':>5}"
-)
-print(f"  {'-'*15}  {'-'*10}  {'-'*24}  {'-'*8}  {'-'*6}  {'-'*5}")
-
-seg_results_age = model.effect_by_segment(age_band)
-for sr in sorted(seg_results_age, key=lambda x: x.segment_name):
-    r = sr.result
-    sig = "*" if r.pvalue < 0.05 else ""
-    print(
-        f"  {sr.segment_name:<15}"
-        f"  {r.estimate:>+10.6f}"
-        f"  [{r.ci_low:+.6f}, {r.ci_high:+.6f}]"
-        f"  {r.pvalue:>8.4f}"
-        f"  {sr.n_obs:>6,}"
-        f"  {sig:>5}"
-    )
+print("  The pattern should be monotone: NCD=0 most negative (most elastic),")
+print("  NCD=5 least negative (least elastic). CIs overlap due to estimation")
+print("  uncertainty but the direction is identifiable with 8,000 records.")
+print()
+print("  Practical implication: a 5% retention discount is worth offering to")
+print("  NCD=0 customers but not to NCD=5 customers whose renewal decision")
+print("  is much less price-sensitive. Using the ATE to set a uniform discount")
+print("  policy would over-discount loyal customers and under-invest in elastic ones.")
 
 # ---------------------------------------------------------------------------
-# Step 5: Dose-response curve
+# Step 4: Formal HTE inference via BLP, GATES, CLAN
 # ---------------------------------------------------------------------------
 #
-# The dose-response curve answers a different question: not "what is the
-# marginal effect of price?" but "what would the average claim outcome have
-# been if we had charged everyone premium d?"
+# HeterogeneousInference runs the Chernozhukov et al. (2020/2025) procedure:
 #
-# This is useful for:
-#   - Understanding the shape of the premium-risk relationship
-#   - Identifying the price level at which the causal effect changes sign
-#   - Setting global rate-change targets (not just marginal adjustments)
+# BLP (Best Linear Predictor): Regresses Y on (W - e_hat) and
+#   (W - e_hat) * (S - S_bar) where S = tau_hat. beta_2 > 0 and p < 0.05
+#   formally confirms that the CATE proxy explains real variation in treatment
+#   effects. This is the test you cite in your model governance documentation.
 #
-# The estimator uses kernel-DML (Colangelo-Lee 2020): for each treatment
-# value d on a grid, it computes a locally-weighted doubly-robust score and
-# runs inference on the weighted average.
+# GATES: Partitions customers into K=5 CATE quantile groups and estimates
+#   the group average effect for each. These should increase monotonically.
+#
+# CLAN: Compares covariate means between the highest and lowest GATE groups.
+#   Tells you WHICH risk factors drive the heterogeneity (not just that it exists).
 # ---------------------------------------------------------------------------
 
 print()
 print("=" * 70)
-print("Step 5: Dose-response curve E[Y(d)] across premium grid")
-print("=" * 70)
-print("Fitting dose-response model (reuses cross-fitted nuisance)...")
+print("Step 4: Formal HTE inference — BLP, GATES, CLAN")
+print("-" * 70)
+print("  Running 50 data splits (standard: 100; reduced here for speed)...")
+print()
 
-dr_model = DoseResponseCurve(
-    outcome_family="gaussian",
-    n_folds=5,
-    nuisance_backend="sklearn",
-    bandwidth="silverman",
+inf = HeterogeneousInference(
+    n_splits=50,    # 100 is standard; 50 for demo speed
+    k_groups=5,
+    alpha=0.05,
     random_state=42,
 )
 
-dr_model.fit(X, D, Y)
+hte_result = inf.run(
+    df=df,
+    estimator=est,
+    cate_proxy=cates,
+    confounders=confounders,
+)
 
-# Evaluate at 12 points across the realistic premium range
-d_grid = np.linspace(200, 600, 12)
-dr_result = dr_model.predict(d_grid)
+print(hte_result.summary())
 
-# Also compute the naive counterfactual from the linear DGP:
-# true E[Y(d)] = expected_log_risk + beta_D * d
-mean_log_risk = np.mean(1.0 * X[:, 0] - 1.0 * X[:, 1] + 0.8 * X[:, 2] + 1.2 * X[:, 3])
-true_dr = mean_log_risk + dgp.beta_D * d_grid
+print()
+if hte_result.blp.heterogeneity_detected:
+    print("  BLP confirms heterogeneity: beta_2 > 0 and p < 0.05.")
+    print("  The CATE proxy S(x) explains real variation in individual treatment")
+    print("  effects. The GATES are therefore interpretable as causal estimates,")
+    print("  not just noise.")
+else:
+    print("  BLP did not detect significant heterogeneity at p < 0.05.")
+    print("  This could be a power issue (need more data) or genuine homogeneity.")
+    print("  Do not use individual CATEs for customer-level targeting.")
 
-print(f"\nDose-response curve (E[Y(d)] = mean outcome if all paid premium d):")
-print(f"  {'Premium':>8}  {'Estimated':>10}  {'95% CI':>22}  {'True (DGP)':>11}")
-print(f"  {'-'*8}  {'-'*10}  {'-'*22}  {'-'*11}")
+print()
+print("  GATES monotonicity check:", hte_result.gates.gates_increasing)
+if hte_result.gates.gates_increasing:
+    print("  GATE estimates increase across quantile groups — the causal forest")
+    print("  correctly orders customers by their price sensitivity.")
+else:
+    print("  GATE estimates are not monotone. This can happen with limited data.")
+    print("  The BLP result is the primary inference; GATES order is secondary.")
 
-for i in range(len(d_grid)):
+# ---------------------------------------------------------------------------
+# Step 5: RATE/AUTOC — does the CATE ranking have targeting value?
+# ---------------------------------------------------------------------------
+#
+# RATE asks: if you offer a retention discount to the top-q fraction of
+# customers ranked by predicted elasticity, do they actually have larger
+# causal effects than average?
+#
+# AUTOC > 0 and p < 0.05: yes, the ranking has targeting value. The model
+# correctly identifies who is most responsive to price.
+#
+# AUTOC not significant: the individual CATE ranking is noise. Offer discounts
+# based on segment-level GATES (e.g., all NCD=0 PCW customers), not individual
+# scores.
+#
+# This is the honest test most practitioners skip. Running it and reporting
+# the result — even when negative — is good practice.
+# ---------------------------------------------------------------------------
+
+print()
+print("=" * 70)
+print("Step 5: RATE/AUTOC — does the CATE ranking have targeting value?")
+print("-" * 70)
+print("  Computing doubly-robust scores and bootstrap SE (200 samples)...")
+print()
+
+evaluator = TargetingEvaluator(
+    method="autoc",
+    n_bootstrap=200,
+    random_state=42,
+)
+
+rate_result = evaluator.fit(
+    estimator=est,
+    df=df,
+    outcome="renewed",
+    treatment="log_price_change",
+    confounders=confounders,
+)
+
+print(f"  AUTOC:   {rate_result.rate:.4f}")
+print(f"  SE:      {rate_result.se:.4f}")
+print(f"  p-value: {rate_result.p_value:.4f}  (one-sided H0: RATE <= 0)")
+print()
+
+if rate_result.p_value < 0.05:
+    print("  AUTOC > 0 and significant: the CATE ranking identifies real targeting")
+    print("  value. Customers in the top CATE quantile genuinely have larger causal")
+    print("  effects. You can use the CATE ranking to prioritise retention offers.")
+else:
+    print("  AUTOC not significant at p=0.05. The individual CATE ranking does not")
+    print("  demonstrate targeting value beyond noise. Use segment-level GATES for")
+    print("  targeting decisions (NCD band, channel) rather than individual CATEs.")
+
+print()
+print("  TOC curve (targeting gain vs fraction targeted):")
+print(f"  {'q':>8}  {'TOC(q)':>10}  {'95% band':>22}")
+print(f"  {'-'*8}  {'-'*10}  {'-'*22}")
+for _, row in rate_result.toc_curve.iterrows():
+    if row["q"] in [0.1, 0.2, 0.3, 0.5, 0.7, 1.0]:
+        print(
+            f"  {row['q']:>8.2f}  {row['toc']:>+10.4f}"
+            f"  [{row['se_lower']:+.4f}, {row['se_upper']:+.4f}]"
+        )
+
+# ---------------------------------------------------------------------------
+# Step 6: Simple GATE by channel — actionable segment analysis
+# ---------------------------------------------------------------------------
+#
+# The formal inference machinery is for governance and model validation.
+# For day-to-day pricing decisions, a simple gate() call by a business
+# segment is often more useful than the full BLP/CLAN output.
+#
+# Here: GATE by channel. PCW customers are most price-elastic in this DGP
+# (they are actively comparison-shopping). Direct customers are more loyal.
+# ---------------------------------------------------------------------------
+
+print()
+print("=" * 70)
+print("Step 6: Simple GATE by channel — for the rate review meeting")
+print("-" * 70)
+print()
+
+gates_channel = est.gate(df, by="channel")
+print(f"  {'Channel':>10}  {'GATE':>10}  {'95% CI':>28}  {'n':>7}")
+print(f"  {'-'*10}  {'-'*10}  {'-'*28}  {'-'*7}")
+for row in gates_channel.sort("cate").iter_rows(named=True):
     print(
-        f"  £{d_grid[i]:>6.0f}"
-        f"  {dr_result.ate[i]:>+10.4f}"
-        f"  [{dr_result.ci_low[i]:+.4f}, {dr_result.ci_high[i]:+.4f}]"
-        f"  {true_dr[i]:>+11.4f}"
+        f"  {row['channel']:>10}  {row['cate']:>+10.4f}  "
+        f"[{row['ci_lower']:+.4f}, {row['ci_upper']:+.4f}]  "
+        f"{row['n']:>7,}"
     )
 
-# Practical interpretation: compute the implied effect of a 10% rate increase
-# across the portfolio at the current mean premium
-mean_d = D.mean()
-premium_10pct = mean_d * 1.10
-
-# Use the dose-response to estimate the mean outcome change
-# (as a cross-check on the AME estimate)
-idx_baseline = np.argmin(np.abs(d_grid - mean_d))
-idx_10pct = np.argmin(np.abs(d_grid - premium_10pct))
-dr_effect_10pct = dr_result.ate[idx_10pct] - dr_result.ate[idx_baseline]
-
-print(f"\nDose-response implied effect of 10% rate increase:")
-print(f"  Current mean premium:  £{mean_d:.0f}")
-print(f"  After 10% increase:    £{premium_10pct:.0f}")
-print(f"  E[Y(£{premium_10pct:.0f})] - E[Y(£{mean_d:.0f})]:  {dr_effect_10pct:+.4f}")
-print(f"  AME-implied effect:     {result.estimate * (premium_10pct - mean_d):+.4f}  (AME × £{premium_10pct - mean_d:.0f})")
 print()
-print(
-    "  The two estimates should be similar. Material divergence means either"
-)
-print(
-    "  the dose-response model has extrapolation issues at those premium levels,"
-)
-print(
-    "  or the AME is averaging over a non-linear relationship."
-)
+print("  PCW customers (comparison shoppers) should show the most negative GATE.")
+print("  Direct customers less negative. Broker somewhere between.")
+print("  This table informs channel-specific renewal discount strategy directly.")
 
 # ---------------------------------------------------------------------------
 # Summary
@@ -391,40 +376,35 @@ print()
 print("=" * 70)
 print("Demo complete")
 print("=" * 70)
-
-# Check whether DML improved on OLS
-dml_bias = abs(result.estimate - dgp.true_ame_)
-naive_bias = abs(naive.coef_[0] - dgp.true_ame_)
-controlled_bias = abs(controlled.coef_[0] - dgp.true_ame_)
-improvement_vs_naive = (naive_bias - dml_bias) / naive_bias
-improvement_vs_controlled = (controlled_bias - dml_bias) / controlled_bias
-
 print(f"""
 What was demonstrated:
 
-  True AME:           {dgp.true_ame_:.6f}  (known from the DGP)
+  1. make_hte_renewal_data()
+     Synthetic UK motor book, {len(df):,} policies.
+     True CATE spans {df['true_cate'].min():.2f} (NCD=0) to {df['true_cate'].max():.2f} (NCD=5).
 
-  Naive OLS:          {naive.coef_[0]:.6f}  ({abs(bias_naive)/abs(dgp.true_ame_):.0%} relative bias)
-  OLS + controls:     {controlled.coef_[0]:.6f}  ({abs(bias_controlled)/abs(dgp.true_ame_):.0%} relative bias)
-  AutoDML (Riesz):    {result.estimate:.6f}  ({dml_bias/abs(dgp.true_ame_):.0%} relative bias)
+  2. HeterogeneousElasticityEstimator.fit()
+     CausalForestDML with CatBoost nuisance, 5-fold cross-fitting.
+     ATE estimate: {ate:.4f}  [true mean: {df['true_cate'].mean():.4f}]
 
-  DML reduces bias by {improvement_vs_naive:.0%} vs naive OLS, {improvement_vs_controlled:.0%} vs controlled OLS.
+  3. GATES by NCD band (est.gate())
+     Segment estimates are reliable; individual CATEs are noisy.
+     Use GATES for pricing decisions, not individual customer scores.
 
-  Segment effects (NCB band):
-{chr(10).join(
-    f"    {sr.segment_name:<12}  AME = {sr.result.estimate:+.6f}  "
-    f"95% CI [{sr.result.ci_low:+.6f}, {sr.result.ci_high:+.6f}]"
-    for sr in sorted(seg_results_ncb, key=lambda x: x.segment_name)
-)}
+  4. Formal HTE inference (HeterogeneousInference)
+     BLP heterogeneity test: beta_2={hte_result.blp.beta_2:.4f}  p={hte_result.blp.beta_2_pvalue:.4f}
+     GATES monotone: {hte_result.gates.gates_increasing}
+     CLAN identifies features driving heterogeneity.
 
-  Dose-response: monotone negative relationship confirmed
-    E[Y(£200)] = {dr_result.ate[0]:+.4f}  vs  E[Y(£600)] = {dr_result.ate[-1]:+.4f}
+  5. RATE/AUTOC (TargetingEvaluator)
+     AUTOC={rate_result.rate:.4f}  p={rate_result.p_value:.4f}
+     {"Ranking has targeting value — CATEs useful for prioritisation." if rate_result.p_value < 0.05
+      else "Ranking not significant — use segment GATES, not individual CATEs."}
 
-  Key design choice:
-    AutoDML uses Riesz representer regression instead of GPS estimation.
-    GPS is ill-posed when premium is nearly deterministic given X — which
-    is the normal situation in a renewal book. The Riesz approach is robust
-    to this problem. The cost is that you lose individual-level CATE
-    estimates. You get AME and segment-level GATEs, which are the right
-    granularity for a pricing committee anyway.
+  Key design decision:
+    The causal_forest subpackage does NOT try to give reliable individual
+    CATE estimates for every customer. It gives reliable GROUP estimates
+    (GATES) and formal tests for WHETHER heterogeneity exists (BLP) and
+    WHETHER the ranking has targeting value (RATE). That is the right
+    granularity for UK personal lines pricing decisions.
 """)
