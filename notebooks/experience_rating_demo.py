@@ -39,7 +39,7 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install experience-rating polars matplotlib
+# MAGIC %pip install experience-rating polars matplotlib --quiet
 
 # COMMAND ----------
 

@@ -36,7 +36,7 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install insurance-covariate-shift matplotlib numpy pandas catboost
+# MAGIC %pip install insurance-covariate-shift matplotlib numpy pandas catboost --quiet
 
 # COMMAND ----------
 

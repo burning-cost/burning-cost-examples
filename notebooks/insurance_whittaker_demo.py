@@ -24,7 +24,7 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install insurance-whittaker matplotlib numpy pandas
+# MAGIC %pip install insurance-whittaker matplotlib numpy pandas --quiet
 
 # COMMAND ----------
 

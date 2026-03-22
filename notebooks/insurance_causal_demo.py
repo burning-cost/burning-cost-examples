@@ -41,7 +41,7 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install catboost matplotlib scikit-learn polars pyarrow "doubleml==0.7.1" "insurance-causal" "numpy<2" "statsmodels==0.13.5" --force-reinstall
+# MAGIC %pip install catboost matplotlib scikit-learn polars pyarrow "doubleml>=0.7.0,<=0.8.0" insurance-causal "statsmodels>=0.14.5" --quiet
 
 # COMMAND ----------
 

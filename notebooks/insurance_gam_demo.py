@@ -44,7 +44,7 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install "insurance-gam[all]" polars matplotlib "statsmodels>=0.14.4" --quiet
+# MAGIC %pip install "insurance-gam[all]" polars matplotlib "statsmodels>=0.14.5" --quiet
 
 # COMMAND ----------
 
@@ -365,7 +365,7 @@ anam = ANAM(
     link="log",
     monotone_decreasing=["ncd_years"],
     n_epochs=20,
-    batch_size=512,
+    batch_size=256,
     learning_rate=1e-3,
     lambda_smooth=1e-4,
     patience=5,

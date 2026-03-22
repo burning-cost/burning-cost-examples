@@ -37,7 +37,7 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install "bayesian-pricing[pymc]" pymc arviz matplotlib pandas polars "numpy>=2.0"
+# MAGIC %pip install "bayesian-pricing[pymc]" pymc arviz matplotlib pandas polars --quiet
 
 # COMMAND ----------
 

@@ -33,7 +33,7 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install insurance-telematics catboost polars matplotlib hmmlearn statsmodels scikit-learn
+# MAGIC %pip install insurance-telematics catboost polars matplotlib hmmlearn statsmodels scikit-learn --quiet
 
 # COMMAND ----------
 

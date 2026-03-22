@@ -29,7 +29,7 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install insurance-dispersion formulaic scipy pandas numpy matplotlib
+# MAGIC %pip install insurance-dispersion formulaic scipy pandas numpy matplotlib --quiet
 
 # COMMAND ----------
 

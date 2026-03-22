@@ -33,7 +33,7 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install insurance-interactions[torch] glum polars
+# MAGIC %pip install "insurance-interactions[torch]" glum polars --quiet
 
 # COMMAND ----------
 

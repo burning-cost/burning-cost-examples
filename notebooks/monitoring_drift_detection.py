@@ -25,7 +25,7 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install insurance-monitoring polars numpy
+# MAGIC %pip install insurance-monitoring polars numpy --quiet
 
 # COMMAND ----------
 

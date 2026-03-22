@@ -27,7 +27,7 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install --no-deps insurance-thin-data>=0.1.1
+# MAGIC %pip install --no-deps "insurance-thin-data>=0.1.1" --quiet
 
 # COMMAND ----------
 

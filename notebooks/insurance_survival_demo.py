@@ -46,7 +46,7 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install insurance-survival lifelines polars numpy scipy scikit-learn matplotlib
+# MAGIC %pip install insurance-survival lifelines polars numpy scipy scikit-learn matplotlib --quiet
 
 # COMMAND ----------
 

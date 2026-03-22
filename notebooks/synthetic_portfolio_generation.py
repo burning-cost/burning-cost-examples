@@ -35,7 +35,7 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install "insurance-synthetic[vine,fidelity]" "pyvinecopulib==0.6.4" matplotlib seaborn
+# MAGIC %pip install "insurance-synthetic[vine,fidelity]" "pyvinecopulib>=0.6" matplotlib seaborn --quiet
 
 # COMMAND ----------
 

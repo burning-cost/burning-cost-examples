@@ -27,7 +27,7 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install insurance-governance catboost polars matplotlib scikit-learn
+# MAGIC %pip install insurance-governance catboost polars matplotlib scikit-learn --quiet
 
 # COMMAND ----------
 

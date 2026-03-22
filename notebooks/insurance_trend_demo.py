@@ -52,7 +52,7 @@
 
 # COMMAND ----------
 
-%pip install insurance-trend polars matplotlib
+# MAGIC %pip install insurance-trend polars matplotlib --quiet
 
 # COMMAND ----------
 

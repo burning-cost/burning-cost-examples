@@ -46,9 +46,9 @@ def _pip(*args):
         raise RuntimeError(f"pip install failed: {args}")
 
 # Phase 1: core ecosystem with compatible versions
-_pip("torch>=2.0", "numpy>=1.24,<2", "scipy>=1.11,<1.14",
-     "statsmodels>=0.14,<0.15", "scikit-learn>=1.3",
-     "pandas>=2.0", "patsy", "polars", "matplotlib")
+_pip("torch>=2.0", "numpy>=1.24", "scipy>=1.11",
+     "statsmodels>=0.14.5", "scikit-learn>=1.3",
+     "pandas>=2.0", "patsy", "polars", "matplotlib", "--quiet")
 
 # Phase 2: insurance-glm-tools without deps (deps already installed above)
 _pip("insurance-glm-tools", "--no-deps")

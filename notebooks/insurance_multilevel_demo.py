@@ -59,7 +59,7 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install insurance-multilevel catboost polars numpy
+# MAGIC %pip install insurance-multilevel catboost polars numpy --quiet
 
 # COMMAND ----------
 

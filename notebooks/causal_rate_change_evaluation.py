@@ -22,7 +22,7 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install insurance-causal-policy
+# MAGIC %pip install insurance-causal-policy --quiet
 
 # COMMAND ----------
 

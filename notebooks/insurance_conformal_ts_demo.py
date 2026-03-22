@@ -23,7 +23,7 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install insurance-conformal-ts statsmodels scikit-learn matplotlib
+# MAGIC %pip install insurance-conformal-ts statsmodels scikit-learn matplotlib --quiet
 
 # COMMAND ----------
 

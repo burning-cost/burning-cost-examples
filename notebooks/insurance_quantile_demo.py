@@ -37,7 +37,7 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install insurance-quantile catboost polars scikit-learn matplotlib scipy
+# MAGIC %pip install insurance-quantile catboost polars scikit-learn matplotlib scipy --quiet
 
 # COMMAND ----------
 

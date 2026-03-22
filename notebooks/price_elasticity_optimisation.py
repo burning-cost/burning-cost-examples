@@ -19,7 +19,7 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install "econml==0.15.1" catboost matplotlib "insurance-elasticity"
+# MAGIC %pip install "econml>=0.15,<0.16" catboost matplotlib insurance-elasticity --quiet
 
 # COMMAND ----------
 

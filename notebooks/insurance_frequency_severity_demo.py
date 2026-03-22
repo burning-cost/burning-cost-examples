@@ -37,7 +37,7 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install insurance-frequency-severity==0.2.1 polars matplotlib statsmodels scipy numpy pandas
+# MAGIC %pip install insurance-frequency-severity polars matplotlib statsmodels scipy --quiet
 
 # COMMAND ----------
 

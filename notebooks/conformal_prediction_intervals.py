@@ -47,7 +47,7 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install insurance-conformal catboost
+# MAGIC %pip install insurance-conformal catboost --quiet
 
 # COMMAND ----------
 

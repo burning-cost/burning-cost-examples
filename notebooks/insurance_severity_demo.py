@@ -23,7 +23,7 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install insurance-severity[glm,plotting] statsmodels matplotlib polars
+# MAGIC %pip install "insurance-severity[glm,plotting]" statsmodels matplotlib polars --quiet
 
 # COMMAND ----------
 

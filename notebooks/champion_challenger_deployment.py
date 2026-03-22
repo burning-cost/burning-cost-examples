@@ -39,7 +39,7 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install insurance-deploy
+# MAGIC %pip install insurance-deploy --quiet
 
 # COMMAND ----------
 

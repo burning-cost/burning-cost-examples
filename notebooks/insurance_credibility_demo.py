@@ -47,7 +47,7 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install insurance-credibility polars numpy matplotlib
+# MAGIC %pip install insurance-credibility polars numpy matplotlib --quiet
 
 # COMMAND ----------
 
