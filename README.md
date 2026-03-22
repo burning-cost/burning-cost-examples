@@ -9,7 +9,6 @@ Each notebook is self-contained: it installs its dependencies, generates synthet
 | Notebook | Library | What it shows |
 |----------|---------|---------------|
 | [bayesian_pricing_demo.py](notebooks/bayesian_pricing_demo.py) | [bayesian-pricing](https://github.com/burning-cost/bayesian-pricing) | Hierarchical Bayesian vs raw experience on thin segments |
-| [experience_rating_demo.py](notebooks/experience_rating_demo.py) | [experience-rating](https://github.com/burning-cost/experience-rating) | NCD stationary distribution, optimal claim threshold |
 | [insurance_causal_demo.py](notebooks/insurance_causal_demo.py) | [insurance-causal](https://github.com/burning-cost/insurance-causal) | DML causal effect vs naive Poisson GLM on confounded data |
 | [causal_rate_change_evaluation.py](notebooks/causal_rate_change_evaluation.py) | [insurance-causal-policy](https://github.com/burning-cost/insurance-causal-policy) | SDID rate change evaluation with event study and HonestDiD |
 | [conformal_prediction_intervals.py](notebooks/conformal_prediction_intervals.py) | [insurance-conformal](https://github.com/burning-cost/insurance-conformal) | Tweedie conformal intervals vs bootstrap on 50k motor |
@@ -17,14 +16,12 @@ Each notebook is self-contained: it installs its dependencies, generates synthet
 | [insurance_covariate_shift_demo.py](notebooks/insurance_covariate_shift_demo.py) | [insurance-covariate-shift](https://github.com/burning-cost/insurance-covariate-shift) | Importance-weighted evaluation after distribution shift |
 | [insurance_credibility_demo.py](notebooks/insurance_credibility_demo.py) | [insurance-credibility](https://github.com/burning-cost/insurance-credibility) | Bühlmann-Straub credibility vs raw experience on 30 segments |
 | [temporal_cross_validation.py](notebooks/temporal_cross_validation.py) | [insurance-cv](https://github.com/burning-cost/insurance-cv) | Random CV vs temporal CV vs true OOT holdout |
-| [insurance_demand_demo.py](notebooks/insurance_demand_demo.py) | [insurance-demand](https://github.com/burning-cost/insurance-demand) | Conversion/retention, DML elasticity, GIPP-constrained optimiser |
 | [champion_challenger_deployment.py](notebooks/champion_challenger_deployment.py) | [insurance-deploy](https://github.com/burning-cost/insurance-deploy) | Shadow mode, quote logging, bootstrap LR test, ENBP audit |
 | [insurance_distill_demo.py](notebooks/insurance_distill_demo.py) | [insurance-distill](https://github.com/burning-cost/insurance-distill) | GBM-to-GLM distillation: CatBoost surrogate factor tables for Radar/Emblem |
 | [insurance_dispersion_demo.py](notebooks/insurance_dispersion_demo.py) | [insurance-dispersion](https://github.com/burning-cost/insurance-dispersion) | DGLM vs constant-phi Gamma GLM, per-risk volatility scoring |
 | [insurance_distributional_demo.py](notebooks/insurance_distributional_demo.py) | [insurance-distributional](https://github.com/burning-cost/insurance-distributional) | Distributional GBM (TweedieGBM) vs standard point predictions |
 | [insurance_distributional_glm_demo.py](notebooks/insurance_distributional_glm_demo.py) | [insurance-distributional-glm](https://github.com/burning-cost/insurance-distributional-glm) | GAMLSS vs standard Gamma GLM on heterogeneous-variance data |
 | [insurance_dynamics_demo.py](notebooks/insurance_dynamics_demo.py) | [insurance-dynamics](https://github.com/burning-cost/insurance-dynamics) | GAS Poisson filter vs static GLM, BOCPD changepoint detection |
-| [price_elasticity_optimisation.py](notebooks/price_elasticity_optimisation.py) | [insurance-elasticity](https://github.com/burning-cost/insurance-elasticity) | DML elasticity, ENBP-constrained optimiser, efficient frontier |
 | [fairness_audit_demo.py](notebooks/fairness_audit_demo.py) | [insurance-fairness](https://github.com/burning-cost/insurance-fairness) | Proxy discrimination audit, bias metrics, Lindholm correction |
 | [insurance_frequency_severity_demo.py](notebooks/insurance_frequency_severity_demo.py) | [insurance-frequency-severity](https://github.com/burning-cost/insurance-frequency-severity) | Sarmanov copula joint freq-sev vs independence assumption |
 | [insurance_gam_demo.py](notebooks/insurance_gam_demo.py) | [insurance-gam](https://github.com/burning-cost/insurance-gam) | EBM/ANAM vs Poisson GLM with planted non-linear effects |
