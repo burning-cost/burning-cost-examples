@@ -37,4 +37,5 @@ registry/
 
 # Jupyter
 .ipynb_checkpoints/
-*.ipynb
+# *.ipynb excluded from ignore — Colab notebooks are committed intentionally
+# Databricks notebooks in this repo use .py format; .ipynb is for Colab demos only

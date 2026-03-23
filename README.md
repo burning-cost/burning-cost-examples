@@ -4,6 +4,16 @@ Databricks notebooks demonstrating the burning-cost library ecosystem on realist
 
 Each notebook is self-contained: it installs its dependencies, generates synthetic data, fits models, and produces benchmark comparisons against standard actuarial approaches. Run them on Databricks serverless compute.
 
+## Start here: Burning Cost in 30 Minutes
+
+[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/burning-cost/burning-cost-examples/blob/main/notebooks/burning_cost_30_minutes.ipynb)
+
+A single Colab notebook that runs in-browser with zero setup. Covers `insurance-causal`, `insurance-conformal`, and `insurance-monitoring` in one end-to-end workflow on synthetic UK motor data. ~5 minutes runtime on Colab free tier.
+
+[View notebook](notebooks/burning_cost_30_minutes.ipynb)
+
+---
+
 ## Notebooks
 
 | Notebook | Library | What it shows |
@@ -44,6 +54,12 @@ Each notebook is self-contained: it installs its dependencies, generates synthet
 
 ## How to run
 
+### Colab (no setup required)
+
+Click the badge at the top of this README. The 30-minute notebook runs entirely in-browser.
+
+### Databricks
+
 Import a notebook into your Databricks workspace:
 
 ```bash
@@ -58,10 +74,12 @@ All notebooks use `%pip install` cells and `dbutils.library.restartPython()` —
 
 ## Format
 
-Notebooks use the Databricks `.py` format:
+Databricks notebooks use the `.py` format:
 - `# COMMAND ----------` separates cells
 - `# MAGIC %md` lines are markdown cells
 - Compatible with Databricks Runtime 13.x and above
+
+The `burning_cost_30_minutes.ipynb` file is standard Jupyter format, compatible with Colab and local Jupyter.
 
 ## Note on synthetic data
 
