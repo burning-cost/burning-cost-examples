@@ -4,7 +4,9 @@ Databricks notebooks demonstrating the burning-cost library ecosystem on realist
 
 Each notebook is self-contained: it installs its dependencies, generates synthetic data, fits models, and produces benchmark comparisons against standard actuarial approaches. Run them on Databricks serverless compute.
 
-## Start here: Burning Cost in 30 Minutes
+## Start here
+
+**No Databricks account?**
 
 [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/burning-cost/burning-cost-examples/blob/main/notebooks/burning_cost_30_minutes.ipynb)
 
@@ -12,9 +14,17 @@ A single Colab notebook that runs in-browser with zero setup. Covers `insurance-
 
 [View notebook](notebooks/burning_cost_30_minutes.ipynb)
 
+**On Databricks?** Use the Databricks-native starter instead:
+
+| Notebook | Libraries | What it shows |
+|----------|-----------|---------------|
+| [databricks-starter.py](notebooks/databricks-starter.py) | insurance-causal, insurance-conformal, insurance-monitoring | Single 5,000-policy motor portfolio flowing through all three flagship libraries: DML causal effect of telematics score, conformal prediction intervals on the premium model, PSI/A-E drift monitoring |
+
+This notebook answers the three questions a pricing team asks when a new telematics rating factor lands on their desk: Does it causally reduce claims? How uncertain are the premium model outputs? Has the book drifted since the model was trained?
+
 ---
 
-## Notebooks
+## All notebooks
 
 | Notebook | Library | What it shows |
 |----------|---------|---------------|
@@ -63,8 +73,8 @@ Click the badge at the top of this README. The 30-minute notebook runs entirely 
 Import a notebook into your Databricks workspace:
 
 ```bash
-databricks workspace import notebooks/insurance_distributional_demo.py \
-  /Workspace/Users/you@example.com/insurance_distributional_demo \
+databricks workspace import notebooks/databricks-starter.py \
+  /Workspace/Users/you@example.com/databricks-starter \
   --language PYTHON --overwrite
 ```
 
