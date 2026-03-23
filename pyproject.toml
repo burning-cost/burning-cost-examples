@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "burning-cost-examples"
-version = "0.1.0"
+version = "0.1.1"
 description = "End-to-end insurance pricing workflow examples using the Burning Cost open-source stack"
 authors = [{ name = "Burning Cost", email = "pricing.frontier@gmail.com" }]
 readme = "README.md"
@@ -16,7 +16,7 @@ dependencies = [
     "insurance-governance>=0.1.0",
     "catboost>=1.2",
     "shap>=0.45",
-    "numpy>=1.24",
+    "numpy>=1.25",
     "scipy>=1.11",
     # polars is a transitive dependency of shap-relativities but we use it directly
     "polars>=0.20",
