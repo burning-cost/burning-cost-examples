@@ -10,9 +10,12 @@ Each notebook is self-contained: it installs its dependencies, generates synthet
 
 [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/burning-cost/burning-cost-examples/blob/main/notebooks/burning_cost_30_minutes.ipynb)
 
-A single Colab notebook that runs in-browser with zero setup. Covers `insurance-causal`, `insurance-conformal`, and `insurance-monitoring` in one end-to-end workflow on synthetic UK motor data. ~5 minutes runtime on Colab free tier.
+Two Colab notebooks that run in-browser with zero setup. ~5 minutes runtime on Colab free tier.
 
-[View notebook](notebooks/burning_cost_30_minutes.ipynb)
+| Notebook | Libraries | Focus |
+|----------|-----------|-------|
+| [30-minute overview](notebooks/burning_cost_30_minutes.ipynb) | insurance-causal, insurance-conformal, insurance-monitoring | DML causal effects, conformal intervals, drift monitoring |
+| [Quickstart: rate change + fairness](notebooks/quickstart-colab.ipynb) | insurance-causal, insurance-fairness, insurance-monitoring | Rate change evaluation (DiD/ITS), proxy discrimination audit, calibration drift |
 
 **On Databricks?** Use the Databricks-native starter instead:
 
