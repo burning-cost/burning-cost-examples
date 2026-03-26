@@ -44,7 +44,7 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install "insurance-fairness>=0.3.3" matplotlib pandas catboost polars scikit-learn scipy --quiet
+# MAGIC %pip install "insurance-fairness>=0.6.6" matplotlib pandas catboost polars scikit-learn scipy --quiet
 
 # COMMAND ----------
 

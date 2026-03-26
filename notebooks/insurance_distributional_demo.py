@@ -246,6 +246,10 @@ print(
     .round(4)
 )
 
+import insurance_distributional
+print(f"insurance-distributional version: {insurance_distributional.__version__}")
+print("Imports complete.")
+
 # COMMAND ----------
 
 # MAGIC %md
@@ -414,6 +418,8 @@ fig.suptitle(
     "50,000 synthetic UK motor policies | Per-risk mean and uncertainty modelling",
     fontsize=13, fontweight="bold",
 )
+baseline.fit(X_train, y_train, sample_weight=exposure_train)
+baseline_pred = baseline.predict(X_test)
 
 # ─── 1. Predicted mean vs observed (Tweedie test set) ─────────────────────────
 ax = axes[0, 0]

@@ -664,6 +664,10 @@ ax2.legend(fontsize=9)
 ax2.grid(axis="y", alpha=0.3)
 ax2.set_ylim(0, max(fractions) * 1.25)
 
+# Shade the "conclusion overturned" region
+ax.axvspan(bias_to_overturn, bias_vals[-1], alpha=0.08, color="#F44336",
+           label="Conclusion overturned region")
+
 plt.tight_layout()
 display(fig)
 plt.close()
@@ -871,6 +875,10 @@ Summary of results:
   DML 95% CI           [{DML_CI_LOWER:.5f}, {DML_CI_UPPER:.5f}]
   DML p-value          {ate.p_value:.4f}
   CI covers true?      {DML_CI_LOWER <= TRUE_CAUSAL_EFFECT <= DML_CI_UPPER}
+
+  Sensitivity:
+  Bias to overturn conclusion: {bias_to_overturn:.5f}
+  Unobserved confounding needed: {frac_unobserved_needed:.2f}x observed confounding
 
 Key takeaway:
   DML substantially reduced confounding bias relative to the naive GLM.

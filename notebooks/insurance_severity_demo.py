@@ -716,7 +716,7 @@ def drn_lev_mean(dist, limit):
     """Approximate mean LEV from DRN distributions using trapezoidal rule."""
     grid = np.linspace(0, limit, 300)
     sf_matrix = 1.0 - dist.cdf(grid)  # (n, 300)
-    return np.mean(np.trapz(sf_matrix, grid, axis=1))
+    return np.mean(np.trapezoid(sf_matrix, grid, axis=1))
 
 lev_basic_drn = drn_lev_mean(drn_dist, BASIC_LIMIT)
 lev_1m_drn    = drn_lev_mean(drn_dist, 1_000_000)

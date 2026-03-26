@@ -60,12 +60,6 @@ from __future__ import annotations
 
 import numpy as np
 import polars as pl
-# Compatibility: np.trapezoid was added in NumPy 2.0; older versions use np.trapz.
-# insurance-monitoring uses np.trapezoid internally.
-import numpy as _np_compat
-if not hasattr(_np_compat, 'trapezoid'):
-    _np_compat.trapezoid = _np_compat.trapz
-
 
 
 def _psi_band(v: float) -> str:
