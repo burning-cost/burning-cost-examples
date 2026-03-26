@@ -34,8 +34,8 @@
 # MAGIC    controlling for all observed confounders.
 # MAGIC 4. Produces a **benchmark comparison table**: naive vs DML vs true DGP effect,
 # MAGIC    quantifying the confounding bias in percentage terms.
-# MAGIC 5. Runs **sensitivity analysis** (Rosenbaum bounds) asking: how strong would an
-# MAGIC    unobserved confounder need to be to overturn the DML conclusion?
+# MAGIC 5. Runs **CI-based sensitivity analysis**: how much bias from unobserved confounders
+# MAGIC    would be needed to push the DML confidence interval across zero?
 # MAGIC 6. Produces a **confounding bias report** using the library's built-in diagnostic.
 # MAGIC 7. CATE by driver age band: does the causal effect of vehicle value vary by age?
 
@@ -510,98 +510,159 @@ plt.close()
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Step 6: Sensitivity Analysis (Rosenbaum Bounds)
+# MAGIC ## Step 6: Sensitivity Analysis — CI-Based Bias Threshold
 # MAGIC
 # MAGIC DML controls for *observed* confounders. But what if there are unobserved
 # MAGIC confounders — variables that affect both vehicle value and claim frequency
 # MAGIC that are not in our data?
 # MAGIC
 # MAGIC For UK motor, plausible unobserved confounders:
-# MAGIC - Actual annual mileage (higher mileage → more claims; higher mileage → older
-# MAGIC   cars depreciate less, distorting vehicle value)
+# MAGIC - Actual annual mileage (higher mileage → more claims; high mileage → cars
+# MAGIC   depreciate differently, distorting vehicle value as a proxy)
 # MAGIC - Attitude to risk (risk-seeking personality → more accidents AND sports cars)
-# MAGIC - Garaging (city centre no-garage → higher theft frequency AND lower vehicle value)
+# MAGIC - Garaging (city-centre no-garage → higher theft frequency AND lower vehicle value)
 # MAGIC
-# MAGIC The Rosenbaum sensitivity parameter Γ represents the odds ratio of treatment
-# MAGIC assignment for two units with identical *observed* confounders but differing on
-# MAGIC an unobserved factor. Γ = 1.0 means no unobserved confounding. Γ = 1.5 means
-# MAGIC an unobserved factor increases treatment odds by 50% for some units.
+# MAGIC The Rosenbaum Gamma framework applies to binary treatment. DML with continuous
+# MAGIC treatment uses a different sensitivity framing: **how much additive bias would
+# MAGIC an unobserved confounder need to introduce into the ATE estimate before the
+# MAGIC 95% CI crosses zero?** That bias threshold, expressed as a fraction of the
+# MAGIC observed ATE, is the natural robustness measure for this setting.
 # MAGIC
-# MAGIC If the conclusion (negative vehicle value effect) holds at large Γ, the result
-# MAGIC is robust. If it breaks down at small Γ, the result is fragile.
+# MAGIC If the threshold is large (e.g. the bias would need to be 80% of the ATE),
+# MAGIC the result is robust. If it is small (e.g. 10%), a modest unobserved
+# MAGIC confounder could overturn the conclusion.
 
 # COMMAND ----------
 
-from insurance_causal.diagnostics import sensitivity_analysis
+# CI-based sensitivity analysis for continuous-treatment DML.
+# No external imports needed — uses only DML_ESTIMATE, DML_CI_LOWER, DML_CI_UPPER
+# which were computed in Step 3.
 
-sens_report = sensitivity_analysis(
-    ate=ate.estimate,
-    se=ate.std_error,
-    gamma_values=[1.0, 1.1, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0],
-    alpha=0.05,
+# The DML ATE estimate is negative (vehicle value reduces frequency).
+# Unobserved confounding adds positive bias (same direction as the naive GLM bias).
+# The CI breaks down when the upper bound crosses zero.
+
+# Distance from the CI upper bound to zero
+ci_half_width = DML_CI_UPPER - DML_ESTIMATE   # half-width of CI (upper side)
+bias_to_overturn = abs(DML_CI_UPPER)           # bias needed to push CI upper bound to zero
+bias_as_fraction_of_ate = bias_to_overturn / abs(DML_ESTIMATE)
+
+# What fraction of the OBSERVED confounding (naive - DML) would achieve this?
+observed_confounding = abs(NAIVE_ESTIMATE - DML_ESTIMATE)
+bias_as_fraction_of_observed = (
+    bias_to_overturn / observed_confounding if observed_confounding > 0 else float("inf")
 )
 
-print("Rosenbaum Sensitivity Analysis")
-print(f"Base result: ATE = {ate.estimate:.5f}, SE = {ate.std_error:.5f}")
-print(f"Conclusion: vehicle value has a negative causal effect on claim frequency.")
+print("CI-Based Sensitivity Analysis for DML Continuous Treatment")
+print("=" * 65)
+print(f"  DML ATE estimate:               {DML_ESTIMATE:+.5f}")
+print(f"  DML 95% CI:                     [{DML_CI_LOWER:.5f}, {DML_CI_UPPER:.5f}]")
+print(f"  CI upper bound:                 {DML_CI_UPPER:+.5f}")
 print()
-print(f"  {'Gamma':>8}  {'Bias bound':>12}  {'CI lower':>12}  {'CI upper':>12}  "
-      f"{'Conclusion holds?':>20}  {'Worst-case p':>14}")
-print(f"  {'-'*8}  {'-'*12}  {'-'*12}  {'-'*12}  {'-'*20}  {'-'*14}")
-for _, row in sens_report.iterrows():
-    status = "YES" if row["conclusion_holds"] else "NO  ← breaks down here"
-    print(f"  {row['gamma']:>8.2f}  {row['bias_bound']:>+12.6f}  {row['ci_lower']:>+12.6f}  "
-          f"{row['ci_upper']:>+12.6f}  {status:>20}  {row['p_value_worst_case']:>14.4f}")
+print(f"  Bias needed to overturn conclusion: {bias_to_overturn:.5f}")
+print(f"    (i.e. push CI upper bound to 0)")
+print()
+print(f"  As % of DML ATE:                {bias_as_fraction_of_ate * 100:.1f}%")
+print(f"  As % of observed confounding:   {bias_as_fraction_of_observed * 100:.1f}%")
+print(f"    (observed confounding = naive - DML = {observed_confounding:.5f})")
+print()
 
-breakdown_gamma = sens_report[~sens_report["conclusion_holds"]]["gamma"]
-if len(breakdown_gamma) > 0:
-    first_breakdown = float(breakdown_gamma.iloc[0])
-    print(f"\nBreakdown point: Gamma = {first_breakdown:.2f}")
-    if first_breakdown >= 2.0:
-        print(
-            "  Strong robustness: an unobserved confounder would need to more than "
-            f"double the vehicle value odds ({first_breakdown:.1f}x) before the conclusion "
-            "changes. In UK motor, no single unobserved factor is likely this strong."
-        )
-    elif first_breakdown >= 1.5:
-        print(
-            f"  Moderate robustness (Gamma = {first_breakdown:.1f}). An unobserved confounder "
-            f"increasing treatment odds by {(first_breakdown-1)*100:.0f}% would overturn the result. "
-            "Mileage or garaging could plausibly approach this strength."
-        )
-    else:
-        print(
-            f"  Fragile result (Gamma = {first_breakdown:.1f}). A relatively weak unobserved "
-            "confounder could change the conclusion. Consider collecting additional "
-            "confounder data (e.g. telematics mileage) before acting on this estimate."
-        )
+if bias_as_fraction_of_ate >= 0.50:
+    robustness_label = "STRONG"
+    interpretation = (
+        f"An unobserved confounder would need to introduce bias equal to "
+        f"{bias_as_fraction_of_ate * 100:.0f}% of the estimated ATE before the conclusion "
+        f"changes. That is equivalent to {bias_as_fraction_of_observed * 100:.0f}% of the "
+        f"confounding already measured from age and occupation. "
+        f"In UK motor, no single unobserved factor is plausibly this large."
+    )
+elif bias_as_fraction_of_ate >= 0.25:
+    robustness_label = "MODERATE"
+    interpretation = (
+        f"An unobserved confounder needs to introduce {bias_as_fraction_of_ate * 100:.0f}% "
+        f"of the ATE in bias — equivalent to {bias_as_fraction_of_observed * 100:.0f}% of "
+        f"the observed confounding — before the conclusion flips. "
+        f"Mileage or garaging could plausibly approach this threshold."
+    )
 else:
-    print("\nConclusion holds at all tested Gamma values. Very robust result.")
+    robustness_label = "FRAGILE"
+    interpretation = (
+        f"A relatively modest unobserved confounder ({bias_as_fraction_of_ate * 100:.0f}% "
+        f"of the ATE) could change the conclusion. Consider adding telematics mileage "
+        f"or other proxy variables to the confounder set before acting on this estimate."
+    )
+
+print(f"  Robustness: {robustness_label}")
+print(f"  {interpretation}")
 
 # COMMAND ----------
 
-# Sensitivity analysis plot
-fig, ax = plt.subplots(figsize=(10, 5))
-fig.suptitle("Rosenbaum Sensitivity: Vehicle Value Causal Effect\nDoes the conclusion survive unobserved confounding?",
-             fontsize=12, fontweight="bold")
-
-ax.fill_between(
-    sens_report["gamma"],
-    sens_report["ci_lower"],
-    sens_report["ci_upper"],
-    alpha=0.25, color="#4CAF50", label="Worst-case 95% CI"
+# Sensitivity analysis plot — bias threshold diagram
+fig, axes = plt.subplots(1, 2, figsize=(13, 5))
+fig.suptitle(
+    "CI-Based Sensitivity Analysis: Vehicle Value DML Estimate\n"
+    "How much unobserved confounding would overturn the conclusion?",
+    fontsize=12, fontweight="bold"
 )
-ax.plot(sens_report["gamma"], sens_report["bound_lower"], "g--", lw=1.5, alpha=0.7, label="Bias bounds")
-ax.plot(sens_report["gamma"], sens_report["bound_upper"], "g--", lw=1.5, alpha=0.7)
-ax.axhline(y=ate.estimate, color="#4CAF50", linewidth=2, label=f"DML estimate ({ate.estimate:.4f})")
-ax.axhline(y=TRUE_CAUSAL_EFFECT, color="#2196F3", linewidth=2, linestyle="--",
-           label=f"True effect ({TRUE_CAUSAL_EFFECT:.4f})")
-ax.axhline(y=0, color="black", linewidth=1, linestyle=":", label="Zero (null)")
 
-ax.set_xlabel("Rosenbaum Gamma (unobserved confounding odds ratio)", fontsize=11)
-ax.set_ylabel("Treatment effect on log frequency", fontsize=11)
-ax.legend(fontsize=9, loc="upper right")
-ax.grid(alpha=0.3)
+# Left: visualise the bias threshold on the ATE number line
+ax = axes[0]
+ci_lo = DML_CI_LOWER
+ci_hi = DML_CI_UPPER
+
+# Draw CI band
+ax.barh(
+    0, width=ci_hi - ci_lo, left=ci_lo, height=0.5,
+    color="#4CAF50", alpha=0.3, label=f"DML 95% CI [{ci_lo:.4f}, {ci_hi:.4f}]"
+)
+ax.plot(DML_ESTIMATE, 0, "o", color="#4CAF50", markersize=12, label=f"DML ATE ({DML_ESTIMATE:.4f})")
+ax.plot(TRUE_CAUSAL_EFFECT, 0, "^", color="#2196F3", markersize=12,
+        label=f"True effect ({TRUE_CAUSAL_EFFECT:.4f})")
+ax.axvline(x=0, color="black", linewidth=1.5, linestyle=":", label="Zero (null)")
+
+# Annotate bias arrow: from CI upper bound to zero
+ax.annotate(
+    "",
+    xy=(0, 0.35),
+    xytext=(ci_hi, 0.35),
+    arrowprops=dict(arrowstyle="<->", color="red", lw=2),
+)
+ax.text(
+    (ci_hi + 0) / 2, 0.48,
+    f"Bias to overturn\n({bias_to_overturn:.4f})",
+    ha="center", va="bottom", fontsize=9, color="red"
+)
+
+ax.set_xlim(min(ci_lo - 0.03, TRUE_CAUSAL_EFFECT - 0.02), 0.03)
+ax.set_ylim(-0.5, 1.0)
+ax.set_yticks([])
+ax.set_xlabel("Coefficient on log_vehicle_value", fontsize=11)
+ax.set_title("Bias Required to Overturn Conclusion", fontsize=11, pad=10)
+ax.legend(loc="lower left", fontsize=9)
+ax.grid(axis="x", alpha=0.3)
+
+# Right: bias threshold as % of ATE and of observed confounding
+ax2 = axes[1]
+fractions = [bias_as_fraction_of_ate * 100, bias_as_fraction_of_observed * 100]
+labels = ["% of DML ATE", "% of observed\nconfounding"]
+colours = ["#4CAF50", "#FF9800"]
+bars = ax2.bar(labels, fractions, color=colours, alpha=0.8, width=0.4, edgecolor="white")
+
+for bar, val in zip(bars, fractions):
+    ax2.text(
+        bar.get_x() + bar.get_width() / 2,
+        val + 1,
+        f"{val:.0f}%",
+        ha="center", va="bottom", fontsize=12, fontweight="bold"
+    )
+
+ax2.axhline(y=100, color="red", linestyle="--", alpha=0.7, label="100% (unobserved = observed)")
+ax2.axhline(y=50,  color="orange", linestyle=":", alpha=0.7, label="50% (strong/moderate boundary)")
+ax2.set_ylabel("Bias threshold (%)", fontsize=11)
+ax2.set_title("Required Bias as Fraction of\nATE and Observed Confounding", fontsize=11, pad=10)
+ax2.legend(fontsize=9)
+ax2.grid(axis="y", alpha=0.3)
+ax2.set_ylim(0, max(fractions) * 1.25)
 
 plt.tight_layout()
 display(fig)
@@ -784,8 +845,9 @@ if "treatment_r2" in nuis and nuis["treatment_r2"] is not None:
 # MAGIC   audit. A bias of > 20% on a commercially important factor is worth investigating.
 # MAGIC
 # MAGIC **Limitations:**
-# MAGIC - DML adjusts for *observed* confounders only. The sensitivity analysis above
-# MAGIC   shows how robust the conclusion is to unobserved confounding.
+# MAGIC - DML adjusts for *observed* confounders only. The CI-based sensitivity analysis
+# MAGIC   above quantifies how much unobserved confounding would need to exist before
+# MAGIC   the estimated effect changes sign.
 # MAGIC - 50k policies and 5-fold CatBoost cross-fitting takes 10-25 minutes. For
 # MAGIC   exploratory work on large datasets, use `cv_folds=3`.
 # MAGIC - If the treatment is nearly deterministic given confounders (high treatment R²),
@@ -823,7 +885,8 @@ Next steps for live data:
      the confounders, the more credible the conditional ignorability
      assumption.
   3. Run confounding_bias_report() and include in the model audit pack.
-  4. Run sensitivity_analysis() to bound unobserved confounding risk.
+  4. Run the CI-based sensitivity analysis (Step 6) to quantify how much
+     unobserved confounding would be needed to overturn the conclusion.
   5. For heterogeneous effects, use cate_by_segment() on the segments
      that matter commercially (high-volume or high-premium segments).
 """)
