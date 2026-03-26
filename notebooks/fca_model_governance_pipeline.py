@@ -41,7 +41,7 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install "insurance-fairness>=0.5.0" "insurance-conformal>=0.5.1" "insurance-monitoring>=0.6.0" catboost polars numpy scipy --quiet
+# MAGIC %pip install "insurance-fairness>=0.6.6" "insurance-conformal>=0.6.3" "insurance-monitoring>=0.9.2" catboost polars "numpy>=2.0" scipy --quiet
 
 # COMMAND ----------
 
@@ -77,10 +77,6 @@ warnings.filterwarnings("ignore")
 
 import numpy as np
 import polars as pl
-
-# Compatibility patch: np.trapezoid added in NumPy 2.0
-if not hasattr(np, "trapezoid"):
-    np.trapezoid = np.trapz
 
 # ── Data-generating process ───────────────────────────────────────────────────
 

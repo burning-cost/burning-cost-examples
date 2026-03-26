@@ -519,7 +519,7 @@ def gini_coefficient(y_true, y_pred, weight=None):
     ys, ws = y_true[order], w[order]
     cum_w = np.cumsum(ws) / ws.sum()
     cum_y = np.cumsum(ys * ws) / (ys * ws).sum()
-    return 2 * float(np.trapz(cum_y, cum_w)) - 1
+    return 2 * float(np.trapezoid(cum_y, cum_w)) - 1
 
 
 def poisson_deviance(y_true, y_pred):

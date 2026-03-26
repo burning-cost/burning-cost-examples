@@ -16,7 +16,8 @@ dependencies = [
     "insurance-governance>=0.1.0",
     "catboost>=1.2",
     "shap>=0.45",
-    "numpy>=1.25",
+    "numpy>=2.0",
+    "pyarrow>=14.0",
     "scipy>=1.11",
     # polars is a transitive dependency of shap-relativities but we use it directly
     "polars>=0.20",

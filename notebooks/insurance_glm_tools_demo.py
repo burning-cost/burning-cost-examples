@@ -46,7 +46,7 @@ def _pip(*args):
         raise RuntimeError(f"pip install failed: {args}")
 
 # Phase 1: core ecosystem with compatible versions
-_pip("torch>=2.0", "numpy>=1.24", "scipy>=1.11",
+_pip("torch>=2.0", "numpy>=2.0", "scipy>=1.11",
      "statsmodels>=0.14.5", "scikit-learn>=1.3",
      "pandas>=2.0", "patsy", "polars", "matplotlib", "--quiet")
 
