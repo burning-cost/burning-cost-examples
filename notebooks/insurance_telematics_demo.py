@@ -230,7 +230,7 @@ state_profiles = (
         pl.len().alias("n_trips"),
     ])
     .sort("hmm_state")
-    .with_columns(pl.col("hmm_state").cast(pl.Utf8).replace({"0": "0-cautious", "1": "1-normal", "2": "2-aggressive"}))
+    .with_columns(pl.col("hmm_state").cast(pl.String).replace({"0": "0-cautious", "1": "1-normal", "2": "2-aggressive"}))
 )
 
 state_profiles_pd = state_profiles.to_pandas()

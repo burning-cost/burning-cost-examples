@@ -124,8 +124,8 @@ ALL_FEATURES = CATEGORICAL_FEATURES + CONTINUOUS_FEATURES
 # integer levels (e.g. ncd_years=0,1,2,...) and others have string levels (area="A"),
 # the concat fails with a SchemaError. Casting to string first keeps everything consistent.
 X = df.select(ALL_FEATURES).with_columns([
-    pl.col("ncd_years").cast(pl.Utf8),
-    pl.col("has_convictions").cast(pl.Utf8),
+    pl.col("ncd_years").cast(pl.String),
+    pl.col("has_convictions").cast(pl.String),
 ])
 y = df["claim_count"].to_numpy()
 exposure = df["exposure"]

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "burning-cost-examples"
-version = "0.1.1"
+version = "0.1.2"
 description = "End-to-end insurance pricing workflow examples using the Burning Cost open-source stack"
 authors = [{ name = "Burning Cost", email = "pricing.frontier@gmail.com" }]
 readme = "README.md"
