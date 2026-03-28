@@ -615,8 +615,8 @@ except Exception as e:
 # Step 7: FCA evidence pack
 # ---------------------------------------------------------------------------
 #
-# FCA TR24/2 (2024) found that most insurers assessed under the Consumer Duty
-# multi-firm review failed to demonstrate causal attribution between their rate
+# The FCA's multi-firm review of Consumer Duty implementation (2024) found that most insurers
+# failed to demonstrate causal attribution between their rate
 # changes and the outcomes they observed. They showed before-and-after data
 # but could not show the rate change caused the change rather than external
 # factors.

@@ -15,7 +15,7 @@ that have crystallised in UK insurance regulation since 2023:
   outcomes for all customer groups. For pricing, this means documenting that
   no rating factor is functioning as a proxy for a protected characteristic
   in a way that produces unjustifiable differential outcomes. The FCA's 2024
-  multi-firm review (TR24/2) found this documentation is frequently absent.
+  multi-firm review of Consumer Duty implementation (2024) found this documentation is frequently absent.
 
   PRA SS1/23 — The supervisory statement on model risk management. All material
   models require formal validation documentation including: data quality
@@ -100,7 +100,7 @@ import pandas as pd
 #   occupation_class  — correlates with socioeconomic group (a protected
 #                       characteristic under Equality Act 2010 s.9 race /
 #                       s.10 religion provisions in aggregate). The FCA
-#                       flagged occupation as a proxy concern in TR24/2.
+#                       has flagged occupation as a proxy concern in its Consumer Duty supervisory work.
 #
 #   postcode_band     — a synthetic area deprivation proxy. Real postcode-level
 #                       data correlates with ethnicity. The FCA has said
@@ -212,7 +212,7 @@ print(f"\nCompliance artefacts will be written to: {tmpdir}")
 # ------------------
 # FCA Consumer Duty Outcome 4 (Price and Value) requires firms to demonstrate
 # that customers are not receiving worse outcomes because of characteristics
-# that correlate with protected groups. The FCA's TR24/2 (2024 thematic review)
+# that correlate with protected groups. The FCA's multi-firm review of Consumer Duty implementation (2024)
 # specifically identified that many firms cannot produce evidence of ongoing
 # proxy discrimination monitoring — they do a one-off check at model launch
 # and nothing thereafter.
@@ -257,7 +257,7 @@ print("\n" + "=" * 70)
 print("Step 1: Bias audit — FCA Consumer Duty / Equality Act 2010")
 print("=" * 70)
 print("""
-Regulatory basis: FCA Consumer Duty (PRIN 2A, FG22/5, TR24/2), Equality Act 2010 s.19.
+Regulatory basis: FCA Consumer Duty (PRIN 2A, FG22/5), Equality Act 2010 s.19.
 Protected characteristics under audit: postcode_band (ethnicity proxy),
 occupation_class (socioeconomic group proxy).
 """)
@@ -329,8 +329,8 @@ if fairness_report.flagged_factors:
         "Action required: for each flagged factor, produce a memo demonstrating"
         " either (a) the factor has independent actuarial justification beyond"
         " its proxy correlation, or (b) it is removed from the tariff."
-        " This memo must be filed before model deployment. FCA TR24/2 found"
-        " most firms do not have this documentation."
+        " This memo must be filed before model deployment. The FCA's multi-firm review of Consumer Duty"
+        " implementation (2024) found most firms do not have this documentation."
     )
 else:
     print("\nNo factors flagged. Audit evidence folder ready for Consumer Duty review.")
@@ -700,7 +700,7 @@ print("\n" + "=" * 70)
 print("Step 3: Drift monitoring — PRA SS1/23 Principle 5 / FCA ongoing monitoring")
 print("=" * 70)
 print("""
-Regulatory basis: PRA SS1/23 Principle 5, PRA Dear CEO Jan 2026, FCA TR24/2.
+Regulatory basis: PRA SS1/23 Principle 5, PRA Dear CEO Jan 2026, FCA Consumer Duty (PRIN 2A).
 Simulating a quarterly monitoring run: Q1 (reference) vs Q2 (with injected drift).
 """)
 

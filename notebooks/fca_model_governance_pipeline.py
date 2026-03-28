@@ -11,7 +11,7 @@
 # MAGIC **Stage 1 — Model training** sets the baseline. A CatBoost Poisson frequency model
 # MAGIC on UK motor data.
 # MAGIC
-# MAGIC **Stage 2 — Fairness audit** (FCA Consumer Duty PRIN 2A, FCA TR24/2, EP25/2).
+# MAGIC **Stage 2 — Fairness audit** (FCA Consumer Duty PRIN 2A, FCA FG22/5, EP25/2).
 # MAGIC Consumer Duty requires firms to *demonstrate* that model outcomes do not disadvantage
 # MAGIC customers with protected characteristics. "We don't use gender as a rating factor" is
 # MAGIC not sufficient — the FCA's concern is proxy discrimination, where correlated rating
@@ -34,7 +34,7 @@
 # MAGIC ---
 # MAGIC **Regulatory references:**
 # MAGIC - FCA Consumer Duty Finalised Guidance FG22/5 (2023) and PRIN 2A
-# MAGIC - FCA Thematic Review TR24/2 (2024): Pricing Practices and Data Analytics
+# MAGIC - FCA Multi-Firm Review of Consumer Duty Implementation (2024)
 # MAGIC - FCA Evaluation Paper EP25/2 (2025): Consumer Duty — Fair Value Outcomes
 # MAGIC - PRA Supervisory Statement SS1/23: Model Risk Management Principles
 # MAGIC - Equality Act 2010, Section 19: Indirect Discrimination
@@ -195,7 +195,7 @@ print(f"Test  A/E: {y_test.sum()  / pred_test.sum():.4f}")
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Stage 2: Fairness Audit (FCA Consumer Duty / TR24/2)
+# MAGIC ## Stage 2: Fairness Audit (FCA Consumer Duty / PRIN 2A)
 # MAGIC
 # MAGIC The FCA's concern under Consumer Duty is differential outcomes by protected
 # MAGIC characteristic. The audit has two parts:
@@ -284,7 +284,7 @@ report.summary()
 # MAGIC The regulatorily material question is not "is there any correlation" — some correlation
 # MAGIC is inevitable in any realistic rating plan — but "is the correlation material enough
 # MAGIC that the factor is acting primarily as a gender proxy rather than a genuine risk predictor?"
-# MAGIC The amber threshold at proxy R² > 0.05 is conservative but defensible for a TR24/2
+# MAGIC The amber threshold at proxy R² > 0.05 is conservative but defensible for an FCA Consumer Duty
 # MAGIC submission. Factors above it need documented justification in the pricing governance pack.
 
 # COMMAND ----------
@@ -315,7 +315,7 @@ else:
 # MAGIC
 # MAGIC Disparate impact ratio below 0.8 (or above 1.25 in either direction) is the standard
 # MAGIC threshold from equal opportunity frameworks. The FCA has not published an explicit
-# MAGIC numeric threshold for pricing models — TR24/2 requires firms to explain their
+# MAGIC numeric threshold for pricing models — the FCA requires firms to explain their
 # MAGIC methodology and thresholds, not to hit a specific number. Document the choice.
 
 # COMMAND ----------
@@ -719,7 +719,7 @@ elif rec == "MONITOR_CLOSELY":
 # MAGIC | Stage | Library | Regulatory Requirement | Output |
 # MAGIC |-------|---------|------------------------|--------|
 # MAGIC | Model training | CatBoost | Baseline model documentation | Fitted Poisson frequency model |
-# MAGIC | Fairness audit | insurance-fairness | FCA Consumer Duty PRIN 2A, TR24/2, EP25/2 | RAG status, proxy detection, bias metrics |
+# MAGIC | Fairness audit | insurance-fairness | FCA Consumer Duty PRIN 2A, FG22/5, EP25/2 | RAG status, proxy detection, bias metrics |
 # MAGIC | Conformal intervals | insurance-conformal | PRA SS1/23 model uncertainty quantification | 90% coverage-guaranteed prediction intervals |
 # MAGIC | Drift monitoring | insurance-monitoring | PRA SS1/23 ongoing monitoring | A/E, Gini, PSI/CSI, Murphy decomposition, governance recommendation |
 # MAGIC

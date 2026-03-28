@@ -467,7 +467,7 @@ plt.close()
 # MAGIC %md
 # MAGIC ## Step 7: FCA Evidence Pack
 # MAGIC
-# MAGIC FCA TR24/2 (2024) found that most insurers assessed under the Consumer Duty multi-firm review failed to demonstrate causal attribution between their rate changes and the outcomes they observed. They showed before-and-after data but could not show the rate change caused the change rather than external factors.
+# MAGIC The FCA's multi-firm review of Consumer Duty implementation (2024) found that most insurers failed to demonstrate causal attribution between their rate changes and the outcomes they observed. They showed before-and-after data but could not show the rate change caused the change rather than external factors.
 # MAGIC
 # MAGIC `FCAEvidencePack` produces a structured Markdown document addressing the four things the FCA's supervision team looks for:
 # MAGIC 1. **Causal methodology:** not before-and-after, but a recognised control group method
