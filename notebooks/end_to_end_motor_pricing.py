@@ -423,7 +423,7 @@ print(f"Quoted: {n_quotes:,} | Bound: {bound_count:,} ({bound_count/n_quotes:.1%
 # MAGIC %md
 # MAGIC ## Section 6: KPI Tracking and ENBP Audit Report
 # MAGIC
-# MAGIC The FCA's ICOBS 6B multi-firm review (2023) found 83% of firms could not demonstrate which model priced each renewal. This framework is the answer — every quote is logged with model version, arm, price, and ENBP.
+# MAGIC The FCA's ICOBS 6B multi-firm review (2022) found 83% of firms could not demonstrate which model priced each renewal. This framework is the answer — every quote is logged with model version, arm, price, and ENBP.
 
 # COMMAND ----------
 

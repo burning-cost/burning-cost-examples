@@ -107,11 +107,45 @@ else:
 
 # COMMAND ----------
 
+# MAGIC %md ## Run: gbm_to_tariff_pipeline.py
+
+# COMMAND ----------
+
+r = run_script(str(EXAMPLES_DIR / "gbm_to_tariff_pipeline.py"), timeout=900)
+RESULTS[r["script"]] = r
+print(f"[{r['status']}] {r['script']}  ({r['elapsed_s']:.1f}s)")
+if r["status"] != "PASS":
+    print("STDERR:", r["stderr"][-3000:])
+    print("STDOUT:", r["stdout"][-3000:])
+else:
+    lines = r["stdout"].strip().split("\n")
+    for line in lines[-40:]:
+        print(line)
+
+# COMMAND ----------
+
 # MAGIC %md ## Run: fca_compliance_pipeline.py
 
 # COMMAND ----------
 
 r = run_script(str(EXAMPLES_DIR / "fca_compliance_pipeline.py"), timeout=600)
+RESULTS[r["script"]] = r
+print(f"[{r['status']}] {r['script']}  ({r['elapsed_s']:.1f}s)")
+if r["status"] != "PASS":
+    print("STDERR:", r["stderr"][-3000:])
+    print("STDOUT:", r["stdout"][-3000:])
+else:
+    lines = r["stdout"].strip().split("\n")
+    for line in lines[-40:]:
+        print(line)
+
+# COMMAND ----------
+
+# MAGIC %md ## Run: regulatory_compliance_pipeline.py
+
+# COMMAND ----------
+
+r = run_script(str(EXAMPLES_DIR / "regulatory_compliance_pipeline.py"), timeout=900)
 RESULTS[r["script"]] = r
 print(f"[{r['status']}] {r['script']}  ({r['elapsed_s']:.1f}s)")
 if r["status"] != "PASS":
@@ -175,6 +209,23 @@ else:
 
 # COMMAND ----------
 
+# MAGIC %md ## Run: causal_forest_demo.py
+
+# COMMAND ----------
+
+r = run_script(str(EXAMPLES_DIR / "causal_forest_demo.py"), timeout=600)
+RESULTS[r["script"]] = r
+print(f"[{r['status']}] {r['script']}  ({r['elapsed_s']:.1f}s)")
+if r["status"] != "PASS":
+    print("STDERR:", r["stderr"][-3000:])
+    print("STDOUT:", r["stdout"][-3000:])
+else:
+    lines = r["stdout"].strip().split("\n")
+    for line in lines[-40:]:
+        print(line)
+
+# COMMAND ----------
+
 # MAGIC %md ## Run: model_drift_monitoring.py
 
 # COMMAND ----------
@@ -192,11 +243,45 @@ else:
 
 # COMMAND ----------
 
+# MAGIC %md ## Run: sequential_testing_demo.py
+
+# COMMAND ----------
+
+r = run_script(str(EXAMPLES_DIR / "sequential_testing_demo.py"), timeout=600)
+RESULTS[r["script"]] = r
+print(f"[{r['status']}] {r['script']}  ({r['elapsed_s']:.1f}s)")
+if r["status"] != "PASS":
+    print("STDERR:", r["stderr"][-3000:])
+    print("STDOUT:", r["stdout"][-3000:])
+else:
+    lines = r["stdout"].strip().split("\n")
+    for line in lines[-40:]:
+        print(line)
+
+# COMMAND ----------
+
 # MAGIC %md ## Run: price_elasticity_optimisation.py
 
 # COMMAND ----------
 
 r = run_script(str(EXAMPLES_DIR / "price_elasticity_optimisation.py"), timeout=900)
+RESULTS[r["script"]] = r
+print(f"[{r['status']}] {r['script']}  ({r['elapsed_s']:.1f}s)")
+if r["status"] != "PASS":
+    print("STDERR:", r["stderr"][-3000:])
+    print("STDOUT:", r["stdout"][-3000:])
+else:
+    lines = r["stdout"].strip().split("\n")
+    for line in lines[-40:]:
+        print(line)
+
+# COMMAND ----------
+
+# MAGIC %md ## Run: pareto_optimisation_demo.py
+
+# COMMAND ----------
+
+r = run_script(str(EXAMPLES_DIR / "pareto_optimisation_demo.py"), timeout=600)
 RESULTS[r["script"]] = r
 print(f"[{r['status']}] {r['script']}  ({r['elapsed_s']:.1f}s)")
 if r["status"] != "PASS":

@@ -20,7 +20,7 @@
 # MAGIC 6. Lambda selection comparison (REML vs GCV vs AIC vs BIC)
 # MAGIC 7. Key findings
 # MAGIC
-# MAGIC **Reference:** Biessy (2026), *Whittaker-Henderson Smoothing Revisited*, ASTIN Bulletin. arXiv:2306.06932.
+# MAGIC **Reference:** Biessy (2023), *Whittaker-Henderson Smoothing Revisited*, ASTIN Bulletin. arXiv:2306.06932.
 
 # COMMAND ----------
 
@@ -490,7 +490,7 @@ displayHTML(f'<img src="data:image/png;base64,{img_b64}" style="max-width:100%;"
 # MAGIC %md
 # MAGIC ## 6. Lambda Selection Method Comparison
 # MAGIC
-# MAGIC The key tuning decision in Whittaker-Henderson smoothing is the choice of lambda selection criterion. REML is recommended in Biessy (2026) on the basis that it has a unique, well-defined maximum on typical actuarial datasets. GCV is faster but can select extreme values on pathological data. AIC and BIC add EDF penalties.
+# MAGIC The key tuning decision in Whittaker-Henderson smoothing is the choice of lambda selection criterion. REML is recommended in Biessy (2023) on the basis that it has a unique, well-defined maximum on typical actuarial datasets. GCV is faster but can select extreme values on pathological data. AIC and BIC add EDF penalties.
 # MAGIC
 # MAGIC We compare all four methods on 200 simulation trials, measuring MSE vs true curve and the selected lambda value.
 
@@ -616,7 +616,7 @@ displayHTML(f"""
 # MAGIC
 # MAGIC **5. Lambda selection methods**
 # MAGIC
-# MAGIC REML, GCV, AIC, and BIC produce qualitatively similar MSE on this data. REML is preferred because it has lower variance in its lambda selection — it makes more consistent choices across trials. GCV occasionally selects extreme lambdas (very high or very low) on individual trials, which shows up as heavier tails in its lambda distribution. This is the pathological-data risk documented in Biessy (2026).
+# MAGIC REML, GCV, AIC, and BIC produce qualitatively similar MSE on this data. REML is preferred because it has lower variance in its lambda selection — it makes more consistent choices across trials. GCV occasionally selects extreme lambdas (very high or very low) on individual trials, which shows up as heavier tails in its lambda distribution. This is the pathological-data risk documented in Biessy (2023).
 # MAGIC
 # MAGIC **Practical recommendation**
 # MAGIC

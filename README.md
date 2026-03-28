@@ -92,6 +92,12 @@ The DGP validation gives a concrete check: TweedieGBM should recover phi increas
 | [insurance_trend_demo.py](notebooks/insurance_trend_demo.py) | [insurance-trend](https://github.com/burning-cost/insurance-trend) | Automated trend selection vs naive OLS, structural breaks |
 | [insurance_whittaker_demo.py](notebooks/insurance_whittaker_demo.py) | [insurance-whittaker](https://github.com/burning-cost/insurance-whittaker) | W-H smoothing with REML lambda vs manual step smoothing |
 | [shap_relativities_demo.py](notebooks/shap_relativities_demo.py) | [shap-relativities](https://github.com/burning-cost/shap-relativities) | CatBoost relativities vs GLM vs true DGP on synthetic motor |
+| [causal_forest_demo.py](notebooks/causal_forest_demo.py) | [insurance-causal](https://github.com/burning-cost/insurance-causal) | Causal forest heterogeneous treatment effects, BLP test, GATES by segment |
+| [fca_compliance_pipeline.py](notebooks/fca_compliance_pipeline.py) | insurance-datasets, insurance-fairness, insurance-governance | FCA Consumer Duty proxy audit and PRA SS1/23 validation in one pipeline |
+| [insurance_datasets_demo.py](notebooks/insurance_datasets_demo.py) | [insurance-datasets](https://github.com/burning-cost/insurance-datasets) | Synthetic UK motor and liability data with known DGP for benchmarking |
+| [pareto_optimisation_demo.py](notebooks/pareto_optimisation_demo.py) | [insurance-optimise](https://github.com/burning-cost/insurance-optimise) | 3-objective Pareto frontier (profit, retention, fairness), TOPSIS selection |
+| [price_elasticity_optimisation.py](notebooks/price_elasticity_optimisation.py) | [insurance-elasticity](https://github.com/burning-cost/insurance-elasticity) | Price elasticity estimation and PS21/5-compliant renewal optimisation |
+| [sequential_testing_demo.py](notebooks/sequential_testing_demo.py) | [insurance-monitoring](https://github.com/burning-cost/insurance-monitoring) | Anytime-valid sequential testing for champion/challenger experiments |
 
 ## How to run
 

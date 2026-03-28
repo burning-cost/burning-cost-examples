@@ -32,7 +32,7 @@
 # MAGIC Duty (PRIN 2A) fair value questions arise: we are not pricing two customers of
 # MAGIC identical profile differently. We are collecting evidence before we change anything.
 # MAGIC
-# MAGIC **The governance angle throughout:** the FCA's ICOBS 6B multi-firm review (2023)
+# MAGIC **The governance angle throughout:** the FCA's ICOBS 6B multi-firm review (2022)
 # MAGIC found 83% of firms could not demonstrate which model priced each renewal. This
 # MAGIC framework is the answer. Every quote is logged with model version, arm, price,
 # MAGIC and ENBP. Your regulator asks who priced policy X — you answer in three lines.

@@ -31,7 +31,7 @@ Consumer Duty (PRIN 2A) fair value questions arise: we are not pricing two
 customers of identical profile differently. We are collecting evidence before
 we change anything.
 
-The governance angle throughout: the FCA's ICOBS 6B multi-firm review (2023)
+The governance angle throughout: the FCA's ICOBS 6B multi-firm review (2022)
 found 83% of firms could not demonstrate which model priced each renewal. This
 framework is the answer. Every quote is logged with model version, arm, price,
 and ENBP. Your regulator asks who priced policy X — you answer in three lines.
