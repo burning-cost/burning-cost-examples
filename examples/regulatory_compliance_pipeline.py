@@ -79,6 +79,7 @@ standard Databricks cluster with 8+ cores the full pipeline takes 5-10 minutes.
 
 from __future__ import annotations
 
+import datetime
 import tempfile
 import warnings
 from pathlib import Path
@@ -97,10 +98,15 @@ import pandas as pd
 # The synthetic data includes two proxy risk factors that we will audit in
 # Step 1:
 #
-#   occupation_class  — correlates with socioeconomic group (a protected
-#                       characteristic under Equality Act 2010 s.9 race /
-#                       s.10 religion provisions in aggregate). The FCA
-#                       has flagged occupation as a proxy concern in its Consumer Duty supervisory work.
+#   occupation_class  — correlates with socioeconomic group and carries
+#                       indirect discrimination risk under Equality Act 2010
+#                       s.19 (indirect discrimination). The most plausible
+#                       protected characteristic pathway is s.9 (race) via
+#                       socioeconomic group correlation, and potentially s.10
+#                       (religion/belief) in aggregate — but the primary
+#                       mechanism is socioeconomic, not religious. The FCA
+#                       has flagged occupation as a proxy concern in its
+#                       Consumer Duty supervisory work.
 #
 #   postcode_band     — a synthetic area deprivation proxy. Real postcode-level
 #                       data correlates with ethnicity. The FCA has said
@@ -241,9 +247,10 @@ print(f"\nCompliance artefacts will be written to: {tmpdir}")
 # 3. Calibration by group: does model accuracy differ between groups?
 #    Different accuracy = the model is learning group membership implicitly.
 #
-# 4. Disparate impact ratio: the "4/5ths rule" (originally US Equal Employment
-#    Opportunity Commission) is now used in UK financial services to identify
-#    outcomes that warrant investigation.
+# 4. Disparate impact ratio: the "4/5ths rule" is borrowed from US employment
+#    discrimination law (EEOC, 29 CFR 1607) and adapted here as a practical
+#    threshold. It has no formal UK statutory status; we use it as a
+#    pragmatic benchmark to identify outcomes that warrant investigation.
 #
 # WHAT REGULATORS WANT TO SEE
 # ---------------------------
@@ -282,6 +289,9 @@ audit = FairnessAudit(
 )
 
 print("Running proxy discrimination audit...")
+# Suppress third-party deprecation noise from CatBoost/NumPy during fitting.
+# This does not suppress any compliance-relevant warnings — all fairness
+# results are in fairness_report; exceptions still propagate normally.
 with warnings.catch_warnings():
     warnings.simplefilter("ignore")
     fairness_report = audit.run()
@@ -393,6 +403,12 @@ print("=" * 70)
 print("""
 Regulatory basis: PRA SS1/23 (Principles 1, 3, 5), PRA Dear CEO Letter Jan 2026.
 FRC TAS 100: actuarial assumptions must be documented and assumptions tested.
+
+Note on SS1/23 scope: SS1/23 is a PRA supervisory statement directed at banks,
+not insurers. Insurers apply it here by analogy as a proxy framework because no
+equivalent insurer-specific model risk management standard currently exists in
+UK regulation. The PRA Dear CEO Jan 2026 letter implicitly endorses this approach
+by applying SS1/23-style expectations to insurance AI/ML models.
 """)
 
 from insurance_governance import (
@@ -569,6 +585,9 @@ val_report = ModelValidationReport(
 html_path = tmpdir / "validation_report.html"
 json_path = tmpdir / "validation_report.json"
 
+# Suppress third-party deprecation noise (matplotlib, scikit-learn) during
+# report generation. Exceptions propagate; compliance outputs are captured
+# in the HTML/JSON files, not in warnings.
 with warnings.catch_warnings():
     warnings.simplefilter("ignore")
     val_report.generate(str(html_path))
@@ -630,7 +649,7 @@ gov_report = GovernanceReport(
     tier=tier_result,
     validation_results={
         "overall_rag": "GREEN" if (gini_val or 0) > 0.15 and hl_result.passed else "AMBER",
-        "run_date": "2026-03-28",
+        "run_date": str(datetime.date.today()),
         "gini": gini_val,
         "ae_ratio": ae_val,
         "hl_p_value": hl_pval,
@@ -789,7 +808,7 @@ if "csi" in results:
         print(f"  {csi_row['feature']:<20}  CSI = {csi_row['csi']:.4f}  [{csi_row['band'].upper()}]")
 
 print(f"\nMonitoring recommendation: {recommendation}")
-print(f"  Decision logic (arXiv 2510.04556 three-stage framework):")
+print(f"  Decision logic (Gini ranking drift + calibration drift; see arXiv:2510.04556):")
 print(f"  Gini {gini['band'].upper()} + A/E {ae['band'].upper()} => {recommendation}")
 
 if recommendation in ("RECALIBRATE", "REFIT"):
@@ -872,9 +891,14 @@ Causal checks:
   A. Occupation class causal effect on claim frequency — is the signal causal
      or a proxy for confounders? If causal, justify inclusion (TAS 100). If
      proxy-only, consider removal (Consumer Duty).
-  B. Price change causal effect on claim frequency — adverse selection check.
-     Expected sign: positive (higher price -> adverse selection -> higher
-     residual risk). Near-zero or negative would suggest model mispecification.
+  B. Price change causal effect on claim frequency — price-risk correlation check.
+     This tests whether the model assigned higher prices to higher-risk policies
+     (i.e. whether price_change correlates with risk after controlling for observed
+     rating factors). It is NOT an adverse selection test: the dataset contains
+     all policies regardless of whether they renewed, so we cannot observe lapse
+     behaviour. A genuine adverse selection test requires renewal/lapse data and
+     a lapse propensity model, which are not available here.
+     Expected sign: positive (model priced riskier policies higher).
 """)
 
 from insurance_causal import CausalPricingModel
@@ -919,6 +943,8 @@ occ_causal_model = CausalPricingModel(
 )
 
 print("Fitting DML model for occupation causal check (3-fold cross-fitting)...")
+# Suppress third-party deprecation noise from CatBoost during DML cross-fitting.
+# CausalPricingModel raises on convergence failures; suppression is safe here.
 with warnings.catch_warnings():
     warnings.simplefilter("ignore")
     occ_causal_model.fit(train_causal)
@@ -953,23 +979,35 @@ else:
         f" the tariff — its Consumer Duty justification is weakened."
     )
 
-# --- 4b: Price change causal effect — adverse selection check ---
+# --- 4b: Price-risk correlation check (NOT an adverse selection test) ---
 #
-# This is the standard TAS 100 / economic sense check for pricing models.
-# If we raise prices, the customers most price-sensitive will lapse.
-# Those who stay tend to be less price-sensitive — and insurance research
-# consistently finds that less price-sensitive customers are also lower risk
-# (they have fewer alternatives because of claims history or unusual risks).
+# IMPORTANT SCOPE NOTE: This is a price-risk correlation check, not an adverse
+# selection check. The two tests are frequently confused.
 #
-# Expected DML estimate: positive (higher price -> higher residual claim rate,
-# because low-risk price-sensitive customers leave the book).
+# What this test does: estimates the causal effect of price_change on claim_count
+# after controlling for observed rating factors. A positive estimate means the
+# model assigned higher prices to policies that, conditional on rating factors,
+# had higher claim frequency. This is a model fit / risk-price alignment check —
+# it tests whether prices were set consistently with risk.
 #
-# A negative or near-zero estimate would suggest the adverse selection
-# mechanism is not present in this data, which warrants investigation.
+# What a true adverse selection test requires (and this dataset cannot provide):
+#   1. Renewal/lapse data — which customers received higher prices and then did
+#      NOT renew? Policies that lapse are absent from this dataset.
+#   2. A lapse propensity model — to identify the price-sensitive segment.
+#   3. Before/after claim experience — comparing retained vs lapsed cohorts.
+# Without renewal conversion data, we cannot test whether price-sensitive
+# low-risk customers exited the book, because we observe only those who stayed.
+#
+# Expected DML estimate: positive (model priced riskier policies higher, i.e.
+# risk-price alignment is present in the data).
+# Near-zero: model prices are uncorrelated with residual risk — review pricing.
+# Negative: prices are inversely correlated with risk — indicates a mispricing
+# pattern that warrants urgent investigation.
 
-print("\n4b: Adverse selection check — causal effect of price change on claim frequency")
+print("\n4b: Price-risk correlation check — causal effect of price change on claim frequency")
 print("    Treatment: price_change (continuous %), Outcome: claim_count")
-print("    Expected direction: positive (adverse selection from high-price-sensitivity lapse)")
+print("    Note: this tests risk-price alignment, NOT adverse selection (no lapse data available)")
+print("    Expected direction: positive (higher prices assigned to higher-risk policies)")
 print()
 
 # We use the full training set including the synthetic price_change column
@@ -990,7 +1028,9 @@ price_causal_model = CausalPricingModel(
     random_state=42,
 )
 
-print("Fitting DML model for price adverse selection check (3-fold cross-fitting)...")
+print("Fitting DML model for price-risk correlation check (3-fold cross-fitting)...")
+# Suppress third-party deprecation noise from CatBoost during DML cross-fitting.
+# CausalPricingModel raises on convergence failures; suppression is safe here.
 with warnings.catch_warnings():
     warnings.simplefilter("ignore")
     price_causal_model.fit(train_price)
@@ -1000,24 +1040,28 @@ print(price_ate)
 
 price_sig = price_ate.p_value < 0.05
 price_positive = price_ate.estimate > 0
-print(f"\nInterpretation (TAS 100 economic sense check):")
+print(f"\nInterpretation (TAS 100 economic sense check — price-risk alignment):")
 if price_positive:
     print(
-        f"  ADVERSE SELECTION CONFIRMED: a 1-unit increase in price_change is"
+        f"  PRICE-RISK ALIGNMENT CONFIRMED: a 1-unit increase in price_change is"
         f" causally associated with a {price_ate.estimate:.4f} increase in claim rate"
-        f" ({'' if not price_sig else 'statistically significant, '}p = {price_ate.p_value:.4f})."
-        f" Consistent with economic theory: price-sensitive (lower-risk) customers"
-        f" lapse at higher prices, increasing the average risk of retained customers."
-        f" This is expected and desirable — it validates the pricing model's"
-        f" risk-price alignment. TAS 100 economic sense check: PASSED."
+        f" ({'' if not price_sig else 'statistically significant, '}p = {price_ate.p_value:.4f})"
+        f" after controlling for observed rating factors. The model assigned higher"
+        f" prices to policies with higher residual risk — consistent with sound"
+        f" risk-based pricing. TAS 100 economic sense check: PASSED."
+        f"\n  NOTE: This does not confirm adverse selection. To test adverse selection"
+        f" you need renewal/lapse data showing which customers exited at higher prices."
     )
 else:
     print(
-        f"  ADVERSE SELECTION NOT DETECTED (ATE = {price_ate.estimate:.4f},"
-        f" p = {price_ate.p_value:.4f}). This is unexpected and requires investigation:"
-        f" either the risk factors fully absorb the adverse selection effect, or"
-        f" the price change variable is confounded with unobserved risk factors."
-        f" TAS 100 economic sense check: REVIEW REQUIRED."
+        f"  PRICE-RISK ALIGNMENT NOT DETECTED (ATE = {price_ate.estimate:.4f},"
+        f" p = {price_ate.p_value:.4f}). Prices do not correlate positively with"
+        f" residual risk after controlling for rating factors. This warrants"
+        f" investigation: either the rating factors fully capture the risk signal"
+        f" (price_change adds nothing new), or there is a systematic mispricing"
+        f" pattern. TAS 100 economic sense check: REVIEW REQUIRED."
+        f"\n  NOTE: Absence of price-risk correlation is distinct from absence of"
+        f" adverse selection — the two require different data to test."
     )
 
 # ---------------------------------------------------------------------------
