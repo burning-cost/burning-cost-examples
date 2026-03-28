@@ -27,6 +27,34 @@ This notebook answers the three questions a pricing team asks when a new telemat
 
 ---
 
+## Multi-library pipelines
+
+These notebooks chain multiple libraries in a single coherent workflow, showing how the libraries are meant to be used together.
+
+| Notebook | Libraries | What it shows |
+|----------|-----------|---------------|
+| [gbm_to_tariff_pipeline.py](notebooks/gbm_to_tariff_pipeline.py) | insurance-distributional, shap-relativities, insurance-whittaker, insurance-conformal | Full pipeline from GBM fit to production rating table: per-risk volatility scores, SHAP factor tables, smoothed age/NCD curves, conformal premium intervals |
+| [end_to_end_motor_pricing.py](notebooks/end_to_end_motor_pricing.py) | insurance-synthetic, shap-relativities, insurance-governance, insurance-deploy | Complete build-and-deploy pipeline: synthetic portfolio, CatBoost frequency model, SHAP relativities, PRA SS1/23 validation, shadow-mode champion/challenger |
+| [fca_model_governance_pipeline.py](notebooks/fca_model_governance_pipeline.py) | insurance-fairness, insurance-conformal, insurance-monitoring | FCA governance workflow: proxy discrimination audit, conformal uncertainty intervals, PSI/A-E drift monitoring |
+| [gbm_to_glm_pipeline.py](notebooks/gbm_to_glm_pipeline.py) | insurance-datasets, insurance-cv, shap-relativities, insurance-monitoring | GBM interpretability pipeline: temporal CV, SHAP factor table, monitoring setup |
+| [thin_data_pipeline.py](notebooks/thin_data_pipeline.py) | credibility, insurance-cv, insurance-datasets | Sparse segment pricing: Bühlmann-Straub credibility with temporal cross-validation |
+
+### gbm_to_tariff_pipeline.py — the production tariff problem
+
+Most pricing teams have a GBM sitting in a notebook that outperforms the production GLM, but nobody can get it into a format that pricing committees, actuarial function, or rating engines can use. This pipeline closes that gap:
+
+1. **TweedieGBM** (insurance-distributional) — fits the full conditional distribution of pure premium, not just the mean. Recovers per-risk volatility scores: two risks with the same expected cost but different risk profiles (young driver vs experienced driver) get different uncertainty scores.
+
+2. **SHAPRelativities** (shap-relativities) — converts the GBM into a multiplicative factor table with confidence intervals. Same format as exp(beta) from a GLM. Validated against the calibration set to avoid in-sample bias.
+
+3. **WhittakerHenderson1D** (insurance-whittaker) — smooths the raw SHAP age and NCD curves with automatic REML lambda selection and Bayesian credible intervals. Noisy tail bands (ages 17-20, 75+) are handled correctly without manual decisions.
+
+4. **InsuranceConformalPredictor** (insurance-conformal) — wraps the model in distribution-free 90% and 99% prediction intervals. The coverage guarantee holds without parametric assumptions. Directly supports PRA SS1/23 model uncertainty requirements.
+
+The DGP validation gives a concrete check: TweedieGBM should recover phi increasing with vehicle_age (true DGP ratio ~2x between new and old vehicles), SHAP should recover the young driver loading (exp(0.64) = 1.90x), and conformal 90% intervals should achieve >= 90% empirical coverage on the held-out test set.
+
+---
+
 ## All notebooks
 
 | Notebook | Library | What it shows |
